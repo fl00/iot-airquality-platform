@@ -94,6 +94,7 @@ impl CircuitBreaker {
         }
     }
 
+    #[allow(dead_code)]
     pub fn state(&self) -> State {
         self.state.lock().unwrap().current_state
     }

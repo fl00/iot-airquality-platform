@@ -17,6 +17,15 @@ INGESTOR_HOST = os.getenv("INGESTOR_HOST", "127.0.0.1")
 INGESTOR_PORT = int(os.getenv("INGESTOR_PORT", os.getenv("METRICS_PORT", "9100")))
 
 # ==============================================================================
+# Declarative Metadata Directory for Registered Hardware Sensors
+# ==============================================================================
+SENSOR_METADATA: Dict[str, Tuple[str, str]] = {
+    "sensor-esp32-01": ("ESP32 Lab Alpha (NDIR + SPS30)", "Hardware Lab - Bay 4"),
+    "sensor-esp32-02": ("ESP32 Cleanroom Beta", "Cleanroom ISO Class 6"),
+    "sensor-esp32-03": ("ESP32 Workshop Gamma", "Rapid Prototyping Workshop"),
+}
+
+# ==============================================================================
 # Initial Sensor State Factory Helper (Zero Fake Telemetry)
 # ==============================================================================
 def create_initial_sensor_state(
@@ -41,8 +50,6 @@ def create_initial_sensor_state(
         "last_seen": 0,
         "sequence": 0,
     }
-
-create_default_sensor_state = create_initial_sensor_state  # Backward-compatibility alias
 
 # ==============================================================================
 # Thread-Safe In-Memory Sensor State Registry (Concurrency Hardened)
@@ -104,16 +111,8 @@ class SensorStateStore:
     def values(self) -> List[Dict[str, Any]]:
         return self.get_all()
 
-# Declarative metadata directory for registered hardware sensors
-SENSOR_METADATA: Dict[str, Tuple[str, str]] = {
-    "sensor-esp32-01": ("ESP32 Lab Alpha (NDIR + SPS30)", "Hardware Lab - Bay 4"),
-    "sensor-esp32-02": ("ESP32 Cleanroom Beta", "Cleanroom ISO Class 6"),
-    "sensor-esp32-03": ("ESP32 Workshop Gamma", "Rapid Prototyping Workshop"),
-}
-
 # Thread-Safe In-Memory Sensor State Registry (Pure Dynamic Auto-Discovery)
 sensor_store = SensorStateStore({})
-sensor_state_cache = sensor_store  # Alias for backward-compatibility
 
 # Active SSE subscriber queues
 sse_subscribers: Set[asyncio.Queue] = set()

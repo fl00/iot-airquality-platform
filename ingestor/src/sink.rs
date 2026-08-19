@@ -6,7 +6,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use crate::circuit_breaker::CircuitBreaker;
 use crate::config::AppConfig;
@@ -21,8 +21,6 @@ pub enum SinkError {
     ClientError(reqwest::StatusCode, String),
     #[error("Circuit breaker open - write rejected")]
     CircuitBreakerOpen,
-    #[error("Serialization error: {0}")]
-    Serialization(String),
 }
 
 /// Normalized in-memory telemetry metric sample

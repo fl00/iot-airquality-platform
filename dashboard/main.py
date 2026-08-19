@@ -25,7 +25,7 @@ from fasthtml.common import (
 )
 
 from influx_service import influx_service
-from stream_bridge import stream_bridge, sensor_store, sse_subscribers, create_default_sensor_state
+from stream_bridge import stream_bridge, sensor_store, sse_subscribers, create_initial_sensor_state
 from aqi_engine import compute_aqi
 
 # Security Whitelists & Limits (CWE-89, CWE-20, CWE-400 Protection)
