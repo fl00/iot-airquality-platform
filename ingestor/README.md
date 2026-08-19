@@ -75,19 +75,21 @@ scrape_configs:
 
 ## 5. Live Downstream IPC Telemetry Stream (`/stream`)
 
-To eliminate the double-consumer MQTT anti-pattern and centralize all Protobuf decoding in Rust, the HTTP server exposes an asynchronous Server-Sent Events (SSE) stream on `/stream`:
+To eliminate the double-consumer MQTT anti-pattern and centralize all Protobuf decoding in Rust, the HTTP server exposes an ultra-high-throughput Server-Sent Events (SSE) stream on `/stream`:
 
+### Default Production Mode (16-Byte Binary Base64 / Zero-Copy):
 ```bash
-# Subscribe to decoded, normalized live telemetry JSON stream:
 curl -N http://127.0.0.1:9100/stream
+# Returns: data: aoXFKwJsCOgTJAKKDyjEIA==\n\n
 ```
 
-### Event Payload Structure:
-```json
-data: {"device_id":"sensor-esp32-01","timestamp_ns":1787147910000000000,"co2_ppm":589,"temperature_celsius":23.15,"humidity_percent":48.2,"pm25_ug_m3":3.85,"pm10_ug_m3":7.2,"tvoc_ppb":120.0,"pressure_hpa":1013.25,"battery_millivolts":3890,"rssi_dbm":-61,"status":0}
+### Human-Readable Debug Mode (`?format=json`):
+```bash
+curl -N "http://127.0.0.1:9100/stream?format=json"
+# Returns: data: {"device_id":"sensor-esp32-01","co2_ppm":589,"temperature_celsius":23.15,...}\n\n
 ```
 
-Downstream consumers (such as the FastHTML Dashboard UI) subscribe to this local pipe, ensuring zero split-brain, zero MQTT dependencies in presentation tiers, and sub-microsecond event delivery.
+Downstream consumers (such as the FastHTML Dashboard UI) subscribe to the binary stream for zero-copy passthrough to browser canvases, ensuring zero split-brain, zero MQTT dependencies in presentation tiers, and sub-microsecond event delivery.
 
 ---
 

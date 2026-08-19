@@ -366,7 +366,7 @@ async def sse_stream(request: Request):
                     break
                 try:
                     telemetry = await asyncio.wait_for(client_queue.get(), timeout=15.0)
-                    b64_frame = pack_telemetry_binary(telemetry)
+                    b64_frame = telemetry if isinstance(telemetry, str) else pack_telemetry_binary(telemetry)
                     yield f"data: b64:{b64_frame}\n\n"
                 except asyncio.TimeoutError:
                     yield ": ping\n\n"

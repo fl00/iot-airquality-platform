@@ -42,7 +42,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize Lock-Free Prometheus Metrics Registry & Downstream IPC Broadcast Stream
     let metrics = IngestorMetrics::new();
-    let (stream_tx, _) = tokio::sync::broadcast::channel::<Arc<String>>(512);
+    let (stream_tx, _) = tokio::sync::broadcast::channel::<metrics::TelemetryBroadcast>(512);
 
     if config.metrics_enabled {
         let metrics_addr = format!("0.0.0.0:{}", config.metrics_port);
@@ -195,9 +195,9 @@ async fn main() -> anyhow::Result<()> {
                                             status: packet.status,
                                         };
 
-                                        if let Ok(json_str) = serde_json::to_string(&sample) {
-                                            let _ = stream_tx.send(Arc::new(json_str));
-                                        }
+                                        let binary_b64 = Arc::new(metrics::pack_binary_frame_b64(&sample));
+                                        let json = Arc::new(serde_json::to_string(&sample).unwrap_or_default());
+                                        let _ = stream_tx.send(metrics::TelemetryBroadcast { binary_b64, json });
 
                                         if let Err(err) = tx_channel.send(sample).await {
                                             error!("[Ingest] Failed to dispatch sample to batch channel: {}", err);
@@ -229,9 +229,9 @@ async fn main() -> anyhow::Result<()> {
                                                     status: packet.status,
                                                 };
 
-                                                if let Ok(json_str) = serde_json::to_string(&sample) {
-                                                    let _ = stream_tx.send(Arc::new(json_str));
-                                                }
+                                                let binary_b64 = Arc::new(metrics::pack_binary_frame_b64(&sample));
+                                                let json = Arc::new(serde_json::to_string(&sample).unwrap_or_default());
+                                                let _ = stream_tx.send(metrics::TelemetryBroadcast { binary_b64, json });
 
                                                 if let Err(err) = tx_channel.send(sample).await {
                                                     error!("[Ingest] Failed to dispatch delta sample: {}", err);

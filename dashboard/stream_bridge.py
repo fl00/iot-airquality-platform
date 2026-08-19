@@ -141,11 +141,25 @@ def _safe_push_queue(q: asyncio.Queue, item: Any):
         except Exception:
             pass
 
+import struct
+import base64
+
+SENSOR_INDEX_REVERSE_MAP: Dict[int, str] = {
+    0: "sensor-esp32-01",
+    1: "sensor-esp32-02",
+    2: "sensor-esp32-03",
+    3: "sensor-esp32-04",
+    4: "sensor-esp32-05",
+    5: "sensor-esp32-06",
+    6: "sensor-esp32-07",
+    7: "sensor-esp32-08",
+}
+
 class StreamBridge:
     """
     Asynchronous Local IPC Reader.
-    Streams normalized telemetry events directly from the Rust Ingestor (:9100/stream).
-    Zero MQTT, Zero Protobuf in the web tier.
+    Streams normalized 16-byte binary telemetry frames directly from the Rust Ingestor (:9100/stream).
+    Zero-Copy Passthrough to browser SSE clients with O(1) in-memory state unpack.
     """
     def __init__(self):
         self._task: Optional[asyncio.Task] = None
@@ -190,7 +204,49 @@ class StreamBridge:
                     line_str = line.decode("utf-8", errors="replace").strip()
                     if line_str.startswith("data: "):
                         raw_data = line_str[6:].strip()
-                        if raw_data.startswith("{"):
+                        
+                        # Fast-Path: 16-byte packed binary Base64 frame (24 chars)
+                        if len(raw_data) == 24 and raw_data.endswith("=="):
+                            # 1. Zero-Copy Passthrough directly to FastHTML SSE subscribers
+                            for q in list(sse_subscribers):
+                                _safe_push_queue(q, raw_data)
+
+                            # 2. Fast binary unpack for in-memory sensor_store (for initial page loads / HTML cards)
+                            try:
+                                raw_bytes = base64.b64decode(raw_data)
+                                ts, co2, temp_centi, hum_centi, pm25_centi, bat, rssi, combined = struct.unpack(">IHhHHHbB", raw_bytes)
+                                aqi_level = (combined >> 4) & 0x0F
+                                sensor_idx = combined & 0x0F
+                                device_id = SENSOR_INDEX_REVERSE_MAP.get(sensor_idx, f"sensor-esp32-{sensor_idx+1:02d}")
+
+                                temp = round(temp_centi / 100.0, 2)
+                                hum = round(hum_centi / 100.0, 2)
+                                pm25 = round(pm25_centi / 100.0, 2)
+                                aqi = compute_aqi(co2, pm25)
+                                name, location = sensor_store.get_metadata(device_id)
+
+                                telemetry = {
+                                    "device_id": device_id,
+                                    "name": name,
+                                    "location": location,
+                                    "status": "Online",
+                                    "battery_mv": bat,
+                                    "rssi_dbm": rssi,
+                                    "co2_ppm": co2,
+                                    "temperature": temp,
+                                    "humidity": hum,
+                                    "pm25": pm25,
+                                    "aqi": aqi,
+                                    "aqi_level": aqi_level,
+                                    "last_seen": ts,
+                                    "sequence": ts,
+                                }
+                                sensor_store.update(device_id, telemetry)
+                            except Exception as parse_err:
+                                print(f"[Stream Bridge] Error unpacking binary frame: {parse_err}")
+
+                        elif raw_data.startswith("{"):
+                            # JSON fallback
                             try:
                                 sample = orjson.loads(raw_data)
                                 device_id = sample.get("device_id", "unknown-sensor")
@@ -224,7 +280,6 @@ class StreamBridge:
 
                                 sensor_store.update(device_id, telemetry)
 
-                                # Push to all active FastHTML SSE subscribers
                                 for q in list(sse_subscribers):
                                     _safe_push_queue(q, telemetry)
 

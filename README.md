@@ -140,6 +140,44 @@ Open your browser at **`http://localhost:8000/`** to view real-time telemetry st
 
 ---
 
+## ⚡ End-to-End 16-Byte Binary Streaming & Debugging Protocol
+
+The platform implements an ultra-compact **16-byte binary protocol** (`>IHhHHHbB`) streaming directly from the Rust Ingestor Hub through the Python FastHTML pass-through to the browser's uPlot Canvas engine:
+
+### 1. Binary Frame Memory Layout (Big-Endian / Network Byte Order)
+```
+┌──────────────┬──────────────┬──────────────┬──────────────┬──────────────┬──────────────┬──────────────┬───────────────────────────────┐
+│ Bytes 0 - 3  │ Bytes 4 - 5  │ Bytes 6 - 7  │ Bytes 8 - 9  │ Bytes 10 - 11│ Bytes 12 - 13│   Byte 14    │            Byte 15            │
+├──────────────┼──────────────┼──────────────┼──────────────┼──────────────┼──────────────┼──────────────┼───────────────┬───────────────┤
+│  Timestamp   │     CO2      │ Temperature  │   Humidity   │    PM2.5     │   Battery    │     RSSI     │   AQI Level   │  Sensor Index │
+│ uint32 (sec) │ uint16 (ppm) │ int16 (.01°C)│uint16 (.01%) │uint16(.01µg) │ uint16 (mV)  │  int8 (dBm)  │  High Nibble  │  Low Nibble   │
+│  [0..2^32-1] │  [0..65535]  │[-32768..32767│  [0..65535]  │  [0..65535]  │  [0..65535]  │ [-128..127]  │ 4 bits (1..5) │ 4 bits (0..15)│
+└──────────────┴──────────────┴──────────────┴──────────────┴──────────────┴──────────────┴──────────────┴───────────────┴───────────────┘
+Total Frame Size: Exactly 16 Bytes (128 bits / 24 Base64 characters).
+```
+
+### 2. Dual-Mode IPC Endpoints (`/stream`)
+- **Default Production Mode (Ultra-Low Latency Binary Base64):**
+  ```bash
+  curl -N http://127.0.0.1:9100/stream
+  # Output: data: aoXFKwJsCOgTJAKKDyjEIA==\n\n
+  ```
+- **Human-Readable Debug Mode (Interactive CLI / Developer Inspection):**
+  ```bash
+  curl -N "http://127.0.0.1:9100/stream?format=json"
+  # Output: data: {"device_id":"sensor-esp32-01","co2_ppm":620,"temperature_celsius":22.8,...}\n\n
+  ```
+
+### 3. Architecture Constraints & Design Rationale
+- **16-Sensor Node Limit (4-Bit Index):**
+  Byte 15 allocates its lower 4 bits (`bits 0..3`) to index up to **16 distinct physical sensors (0 to 15)** connected to a single bare-metal edge gateway node. If a single gateway manages $>16$ sensors, the frame can be extended to 18 bytes (using a 16-bit sensor index), or grouped by logical gateway zones.
+- **Why Auxiliary Metrics (TVOC, PM10, Pressure) are not in the 16B Live Stream:**
+  1. **L1 CPU Cache Line & SIMD Register Fit:** 16 bytes (128 bits) fits exactly into two 64-bit CPU registers, allowing single-instruction atomic copies and zero-allocation DataView unpacking.
+  2. **60 FPS Canvas Real-Estate:** Live real-time animations focus on primary human-health metrics ($CO_2$, PM2.5, Temperature, Humidity).
+  3. **Tiered Storage Architecture (Hot Live vs Warm/Cold Historical):** Deep diagnostic metrics ($TVOC$, $PM_{10}$, Atmospheric Pressure) are indexed and stored in **InfluxDB**, available on-demand via vectorized SQL queries without incurring wire or CPU overhead on the hot 60 FPS live edge streaming loop.
+
+---
+
 ## 📑 Architecture Decision Records (ADRs)
 
 - [ADR 0001: Bare-Metal IoT Stack Selection](docs/adr/0001-bare-metal-iot-stack-selection.md)
