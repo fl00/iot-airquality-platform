@@ -3,6 +3,7 @@
  * Handles high-speed 16-byte binary SSE streaming, real-time DOM updates,
  * and on-demand sequential chart dependency resolution.
  * Size: ~1.8 KB (Zero external dependencies)
+ */
 (function () {
   let eventSource = null;
   const INDEX_SENSOR_MAP = ["sensor-esp32-01", "sensor-esp32-02", "sensor-esp32-03"];
