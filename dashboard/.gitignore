@@ -1,0 +1,17 @@
+# Python bytecode & environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+
+.sesskey
+
+# IDE and OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~

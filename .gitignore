@@ -1,0 +1,33 @@
+# ==============================================================================
+# Bare-Metal IoT Platform - Root Git Ignore
+# ==============================================================================
+
+# Rust / Cargo
+**/target/
+**/*.rs.bk
+ingestor/Cargo.lock
+
+# Python / FastHTML
+**/__pycache__/
+**/*.py[cod]
+*$py.class
+**/.venv/
+**/.env
+**/.pytest_cache/
+.sesskey
+
+# PlatformIO / C++ / Embedded
+**/.pio/
+**/.vscode/
+**/.clangd/
+firmware/.pio/
+firmware/.vscode/
+
+# Logs and Runtime dumps
+*.log
+*.pid
+/offline_queue.bin
+
+# OS Artifacts
+.DS_Store
+Thumbs.db

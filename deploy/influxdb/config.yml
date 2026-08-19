@@ -1,0 +1,27 @@
+# ==============================================================================
+# InfluxDB v3 / v2 Unified Bare-Metal Engine Configuration
+# Optimized for Apache Arrow DataFusion Vector Execution & 32MB Cache Bound
+# ==============================================================================
+
+# InfluxDB 3.0 Storage & Parquet Columnar Engine Limits
+engine: "iox"
+storage-directory: "/var/lib/influxdb/data"
+parquet-max-row-group-size: 100000
+parquet-compression: "snappy"
+
+# Time-series engine storage cache tuning (Strict 32MB ceiling)
+storage-cache-max-memory-size: "32MB"
+storage-cache-snapshot-memory-size: "16MB"
+storage-cache-snapshot-write-cold-duration: "10m"
+storage-compact-full-write-cold-duration: "4h"
+
+# Query Engine & DataFusion SIMD Concurrency
+query-concurrency: 4
+query-queue-size: 16
+query-initial-memory-bytes: 1048576  # 1MB initial allocation per query
+query-max-memory-bytes: 16777216      # 16MB ceiling per query
+
+# Telemetry and network binding
+reporting-disabled: true
+log-level: "info"
+http-bind-address: "127.0.0.1:8086"

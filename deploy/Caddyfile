@@ -1,0 +1,53 @@
+# ==============================================================================
+# Caddyfile - High-Performance Reverse Proxy for Bare-Metal IoT Platform
+# Optimized for SSE Unbuffered Streaming, Gzip/Zstd Compression & Security
+# ==============================================================================
+
+:80, :443 {
+    # Automatic HTTPS or plain HTTP fallback for local/IP access
+    encode zstd gzip
+
+    # Security & Protection Headers
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';"
+    }
+
+    # Static Assets Caching with On-The-Fly Zstandard/Gzip Compression & Immutable Cache
+    handle /static/* {
+        header Cache-Control "public, max-age=31536000, immutable"
+        root * /opt/iot-airquality/iot-airquality-dashboard-ui
+        file_server
+        reverse_proxy 127.0.0.1:8000
+    }
+
+    # Server-Sent Events (SSE) Streaming Endpoint: Disable Proxy Buffering
+    handle /api/v1/stream {
+        reverse_proxy 127.0.0.1:8000 {
+            flush_interval -1
+            transport http {
+                keepalive 60s
+                keepalive_idle_conns 10
+            }
+        }
+    }
+
+    # Default Reverse Proxy to FastHTML Uvicorn Server
+    handle {
+        reverse_proxy 127.0.0.1:8000 {
+            transport http {
+                keepalive 60s
+            }
+        }
+    }
+
+    # Logging
+    log {
+        output stdout
+        format console
+        level INFO
+    }
+}

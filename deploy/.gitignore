@@ -1,0 +1,15 @@
+# Secrets & Local State
+*.tfstate
+*.tfstate.*
+.terraform/
+*.env
+*.pem
+*.key
+
+# Logs
+*.log
+
+# OS / Editor
+.DS_Store
+.vscode/
+.idea/

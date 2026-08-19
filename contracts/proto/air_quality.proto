@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package iot.airquality;
+
+// Device operating status flags
+enum SensorStatus {
+  STATUS_OK = 0;
+  STATUS_WARMING_UP = 1;
+  STATUS_DEGRADED = 2;
+  STATUS_FAULT = 3;
+}
+
+// Keyframe full telemetry sample (emitted periodically or upon significant state drift)
+message FullSample {
+  float temperature_celsius = 1;    // Ambient Temperature in °C (IEEE 754 32-bit float)
+  float humidity_percent = 2;       // Relative Humidity in % (0.0 - 100.0)
+  uint32 co2_ppm = 3;               // Carbon Dioxide concentration in PPM (NDIR sensor)
+  float pm25_ug_m3 = 4;             // Fine Particulate Matter PM2.5 in µg/m³ (Laser scattering)
+  float pm10_ug_m3 = 5;             // Coarse Particulate Matter PM10 in µg/m³
+  float tvoc_ppb = 6;               // Total Volatile Organic Compounds in PPB (MOX sensor)
+  float pressure_hpa = 7;           // Atmospheric pressure in hPa
+}
+
+// Compact delta-encoded telemetry sample (uses ZigZag varints for maximum compression)
+message DeltaSample {
+  uint32 time_offset_sec = 1;       // Seconds elapsed since base_timestamp_sec in packet header
+  sint32 co2_delta_ppm = 2;         // Delta in CO2 PPM (+/- relative to previous sample)
+  sint32 temp_delta_centi_deg = 3;  // Delta in temperature in 0.01 °C (+/- relative to previous)
+  sint32 hum_delta_centi_pct = 4;   // Delta in humidity in 0.01 % RH (+/- relative to previous)
+  sint32 pm25_delta_centi_ug = 5;   // Delta in PM2.5 in 0.01 µg/m³ (+/- relative to previous)
+}
+
+// Batch container for compact delta samples
+message DeltaBatch {
+  repeated DeltaSample samples = 1;
+}
+
+// Master envelope packet sent over MQTT binary payload
+message AirQualityPacket {
+  string device_id = 1;             // Hardware identifier (e.g., "sensor-esp32-01")
+  uint32 sequence_number = 2;       // Monotonically increasing packet sequence counter
+  uint64 base_timestamp_sec = 3;    // Base Unix timestamp (UTC seconds)
+  uint32 battery_millivolts = 4;    // Battery voltage in mV (e.g., 3850 for 3.85V LiPo)
+  sint32 rssi_dbm = 5;              // Wi-Fi / LoRa RSSI in dBm (e.g., -65)
+  SensorStatus status = 6;          // Hardware operational status
+
+  oneof payload {
+    FullSample full_sample = 7;     // Keyframe sample with full floating-point precision
+    DeltaBatch delta_batch = 8;     // Compressed delta-encoded sample sequence
+  }
+}

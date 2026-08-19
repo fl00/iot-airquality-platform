@@ -1,0 +1,17 @@
+# PlatformIO Build Directories
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# IDE / Editor Files
+.vscode/
+.idea/
+*.swp
+*~
+.clangd/
+compile_commands.json
+
+# Binary outputs
+*.hex
+*.bin
+*.elf

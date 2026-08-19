@@ -1,0 +1,18 @@
+# Compiled bytecode and cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Native build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+
+# IDE and OS files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~

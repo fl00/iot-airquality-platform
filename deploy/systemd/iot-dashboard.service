@@ -1,0 +1,42 @@
+[Unit]
+Description=Zero-Bloat Bare-Metal FastHTML Dashboard Service
+After=network.target influxdb.service iot-ingestor.service
+Wants=iot-ingestor.service
+
+[Service]
+Type=simple
+User=iot-service
+Group=iot-service
+WorkingDirectory=/opt/iot-airquality/dashboard
+ExecStart=/opt/iot-airquality/dashboard/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1 --loop uvloop
+Restart=always
+RestartSec=3s
+
+# Resource Constraints (< 40MB RAM Hard Cap)
+MemoryHigh=35M
+MemoryMax=40M
+CPUQuota=50%
+
+# Linux Security Hardening & Sandboxing
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+RestrictRealtime=true
+RestrictSUIDSGID=true
+
+# Environment Defaults
+Environment="PYTHONUNBUFFERED=1"
+Environment="INGESTOR_HOST=127.0.0.1"
+Environment="INGESTOR_PORT=9100"
+Environment="INFLUXDB_URL=http://127.0.0.1:8086"
+Environment="INFLUXDB_ORG=baremetal-iot"
+Environment="INFLUXDB_BUCKET=airquality"
+Environment="INFLUXDB_TOKEN=baremetal-dev-token-987654321"
+
+[Install]
+WantedBy=multi-user.target
