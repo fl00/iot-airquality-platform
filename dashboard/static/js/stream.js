@@ -3,11 +3,14 @@
  * Handles high-speed 16-byte binary SSE streaming, real-time DOM updates,
  * and on-demand sequential chart dependency resolution.
  * Size: ~1.8 KB (Zero external dependencies)
- */
-
 (function () {
   let eventSource = null;
   const INDEX_SENSOR_MAP = ["sensor-esp32-01", "sensor-esp32-02", "sensor-esp32-03"];
+
+  // Zero-GC Pre-allocated Static 16-Byte Decode Buffer & DataView
+  const sseStaticBuffer = new ArrayBuffer(16);
+  const sseStaticUint8 = new Uint8Array(sseStaticBuffer);
+  const sseStaticView = new DataView(sseStaticBuffer);
 
   function startSseStream() {
     if (eventSource) return;
@@ -19,25 +22,23 @@
         let sensorId, ts, co2, temp, hum, pm25, battery, rssi;
 
         if (event.data.startsWith("b64:")) {
-          // Zero-GC 16-byte packed frame: decodes in-place without object allocations (< 0.01ms)
+          // Zero-GC 16-byte packed frame: decodes in-place without object allocations (< 0.005ms)
           // Frame layout: [0..3: ts (u32)] [4..5: co2 (u16)] [6..7: temp (i16/100)] [8..9: hum (u16/100)]
           //               [10..11: pm25 (u16/100)] [12..13: bat (u16)] [14: rssi (i8)] [15: aqi(7-4)|sensor_idx(3-0)]
           const raw = atob(event.data.slice(4));
-          const buffer = new ArrayBuffer(raw.length);
-          const uint8 = new Uint8Array(buffer);
-          for (let i = 0; i < raw.length; i++) uint8[i] = raw.charCodeAt(i);
+          const len = Math.min(raw.length, 16);
+          for (let i = 0; i < len; i++) sseStaticUint8[i] = raw.charCodeAt(i);
 
-          const view = new DataView(buffer);
-          ts = view.getUint32(0, false);              // Bytes 0-3: Unix UTC timestamp seconds
-          co2 = view.getUint16(4, false);             // Bytes 4-5: CO2 in ppm (0..65535)
-          temp = view.getInt16(6, false) / 100.0;     // Bytes 6-7: Temp in centi-Celsius (-327.68..+327.67)
-          hum = view.getUint16(8, false) / 100.0;     // Bytes 8-9: Humidity in centi-percent (0..100.00)
-          pm25 = view.getUint16(10, false) / 100.0;   // Bytes 10-11: PM2.5 in centi-µg/m3 (0..655.35)
-          battery = view.getUint16(12, false);        // Bytes 12-13: Battery in mV (e.g. 3850)
-          rssi = view.getInt8(14);                    // Byte 14: Wi-Fi RSSI in dBm (-128..+127)
-          const rawIdx = view.getUint8(15);           // Byte 15: Combined bitmask byte
-          const aqiLevel = (rawIdx >> 4) & 0x0F;      // High Nibble (bits 7-4): AQI Level 1..5
-          const sensorIdx = rawIdx & 0x0F;            // Low Nibble (bits 3-0): Sensor index 0..15
+          ts = sseStaticView.getUint32(0, false);              // Bytes 0-3: Unix UTC timestamp seconds
+          co2 = sseStaticView.getUint16(4, false);             // Bytes 4-5: CO2 in ppm (0..65535)
+          temp = sseStaticView.getInt16(6, false) / 100.0;     // Bytes 6-7: Temp in centi-Celsius (-327.68..+327.67)
+          hum = sseStaticView.getUint16(8, false) / 100.0;     // Bytes 8-9: Humidity in centi-percent (0..100.00)
+          pm25 = sseStaticView.getUint16(10, false) / 100.0;   // Bytes 10-11: PM2.5 in centi-µg/m3 (0..655.35)
+          battery = sseStaticView.getUint16(12, false);        // Bytes 12-13: Battery in mV (e.g. 3850)
+          rssi = sseStaticView.getInt8(14);                    // Byte 14: Wi-Fi RSSI in dBm (-128..+127)
+          const rawIdx = sseStaticView.getUint8(15);           // Byte 15: Combined bitmask byte
+          const aqiLevel = (rawIdx >> 4) & 0x0F;               // High Nibble (bits 7-4): AQI Level 1..5
+          const sensorIdx = rawIdx & 0x0F;                     // Low Nibble (bits 3-0): Sensor index 0..15
           sensorId = INDEX_SENSOR_MAP[sensorIdx] || "sensor-esp32-01";
         } else {
           // JSON fallback

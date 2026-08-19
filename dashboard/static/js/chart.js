@@ -20,6 +20,9 @@
   const pm25Ring = new Float32Array(MAX_RING_POINTS);
   let ringCount = 0;
 
+  // Pre-allocated dataset tuple for uPlot (eliminates Array literal allocations in 60 FPS loop)
+  const staticDataTuple = [tsRing, co2Ring, tempRing, humRing, pm25Ring];
+
   // Chart configuration builder
   function buildPlotOptions(containerEl) {
     const rect = containerEl.getBoundingClientRect();
@@ -202,13 +205,21 @@
       pm25Ring[lastIdx] = pm25;
     }
 
-    activeChart.setData([
-      tsRing.subarray(0, ringCount),
-      co2Ring.subarray(0, ringCount),
-      tempRing.subarray(0, ringCount),
-      humRing.subarray(0, ringCount),
-      pm25Ring.subarray(0, ringCount),
-    ]);
+    if (ringCount < MAX_RING_POINTS) {
+      staticDataTuple[0] = tsRing.subarray(0, ringCount);
+      staticDataTuple[1] = co2Ring.subarray(0, ringCount);
+      staticDataTuple[2] = tempRing.subarray(0, ringCount);
+      staticDataTuple[3] = humRing.subarray(0, ringCount);
+      staticDataTuple[4] = pm25Ring.subarray(0, ringCount);
+    } else {
+      staticDataTuple[0] = tsRing;
+      staticDataTuple[1] = co2Ring;
+      staticDataTuple[2] = tempRing;
+      staticDataTuple[3] = humRing;
+      staticDataTuple[4] = pm25Ring;
+    }
+
+    activeChart.setData(staticDataTuple);
   }
 
   // Hook for live telemetry dispatcher from global SSE stream
