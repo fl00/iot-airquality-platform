@@ -1,28 +1,48 @@
-# ADR 0003: Ultra-Minimalist Web Performance & Zero-GC Frontend Optimizations
+# ADR 0002: Ultra-Minimalist Web Performance & Zero-GC Frontend Optimizations
 
 ## Status
-**Accepted** (Implemented in V1-Enhanced Platform)
+**Accepted & Implemented**
 
 ---
 
 ## Context & Problem Statement
 Even in server-driven UI architectures (FastHTML + HTMX + SSE), traditional browser frontends frequently incur hidden performance penalties:
-1. **Dynamic V8 Heap Allocations & GC Stutter:** Pushing continuous real-time data into standard JavaScript arrays (`Array.push()`, `Array.shift()`) causes continuous heap fragmentation and periodic Garbage Collection (GC) pauses on client devices (especially mobile and low-power tablets).
-2. **Runtime Web Server Compression Overhead:** Dynamically compressing static libraries (HTMX, uPlot) on the reverse proxy consumes valuable CPU cycles on small cloud instances (e.g. Azure `Standard_B1s_v2` with 1 vCPU).
-3. **Verbose Text Streaming:** Streaming real-time telemetry over Server-Sent Events in JSON text format (~90–120 bytes per frame) incurs unnecessary serialization overhead, radio bandwidth consumption, and JSON parsing CPU time.
+1. **Dynamic V8 Heap Allocations & GC Stutter:** Pushing continuous real-time data into standard JavaScript arrays (`Array.push()`, `Array.shift()`) causes continuous heap fragmentation and periodic Garbage Collection (GC) pauses on client devices.
+2. **GPU Compositing & Layout Thrashing:** Uncontained CSS styles and unoptimized backdrop filters cause the browser rendering engine to continuously recalculate geometry and compositing layers across the entire viewport.
+3. **Manual Asset Versioning Friction:** Manual file renaming or heavy Webpack/Vite bundlers add cognitive and runtime bloat to a minimalist platform.
 
 ---
 
 ## Decision & Implementation Choices
 
-### 1. Inlining Critical CSS (< 14.6 KB Initial TCP Congestion Window)
-- **Decision:** Inline the complete application stylesheet (`main.v1.0.0.css`, 83 lines, ~4.4KB raw, ~1.2KB gzipped) directly into `<style>` in the HTML `<head>`.
-- **Rationale:** The initial TCP Congestion Window (`CWND`) is typically 10 to 14 segments (~14.6 KB). By fitting the full initial HTML + layout styling within the first TCP window, the browser renders the First Contentful Paint (**FCP < 15ms**) on the very first packet receipt with **0 network round-trips (0-RTT render blocking)**.
+### 1. Dynamic Content-Hashing & 1-Year Immutable Caching
+- **Decision:** Use automatic 8-character MD5 content hashing (`static_url("css/main.css")` -> `/static/css/main.css?v=164840f7`) served with 1-year immutable headers (`Cache-Control: public, max-age=31536000, immutable`).
+- **Rationale:** Delivers instant cache busting upon file edits with zero build-time bundling overhead. The entire CSS stylesheet is kept under **105 lines** (strictly `< 150 lines`), eliminating all CSS framework dependencies.
 
 ---
 
-### 2. Zero-Garbage-Collection Canvas Ring-Buffers (`Float64Array` & `Float32Array`)
-- **Decision:** Refactor `chart.v1.0.0.js` to allocate fixed, contiguous typed memory buffers once at initialization:
+### 2. GPU Hardware Compositing & Strict CSS Containment
+- **Decision:** Apply CSS containment and GPU promotion to all sensor and chart cards:
+  ```css
+  .sensor-card {
+      contain: layout style paint;
+      content-visibility: auto;
+      contain-intrinsic-size: 0 240px;
+      will-change: transform;
+      transform: translateZ(0);
+  }
+  .chart-wrapper {
+      contain: strict;
+      will-change: contents;
+      transform: translateZ(0);
+  }
+  ```
+- **Rationale:** Isolates DOM paint boundaries so off-screen cards do not trigger layout recalcs, while hardware-accelerating compositing layers on the GPU.
+
+---
+
+### 3. Zero-Garbage-Collection Canvas Ring-Buffers (`Float64Array` & `Float32Array`)
+- **Decision:** Refactor `static/js/chart.js` to allocate fixed, contiguous typed memory buffers once at initialization:
   ```javascript
   const MAX_RING_POINTS = 3600;
   const tsRing   = new Float64Array(MAX_RING_POINTS); // 64-bit Unix timestamps
@@ -39,29 +59,8 @@ Even in server-driven UI architectures (FastHTML + HTMX + SSE), traditional brow
   tempRing.copyWithin(0, 1);
   humRing.copyWithin(0, 1);
   pm25Ring.copyWithin(0, 1);
-
-  // Set latest sample at end
-  tsRing[MAX_RING_POINTS - 1] = ts;
-  co2Ring[MAX_RING_POINTS - 1] = co2;
-  ...
-  activeChart.setData([
-    tsRing.subarray(0, ringCount),
-    co2Ring.subarray(0, ringCount),
-    tempRing.subarray(0, ringCount),
-    humRing.subarray(0, ringCount),
-    pm25Ring.subarray(0, ringCount)
-  ]);
   ```
-- **Rationale:** `subarray()` generates a lightweight slice view over existing ArrayBuffers without allocating new heap memory. This completely eliminates V8 GC churn, maintaining a rock-solid 60/120 FPS render loop.
-
----
-
-### 3. Dynamic On-The-Fly Compression (Caddy `encode zstd gzip`) & 1-Year Immutable Caching
-- **Decision:** Leverage Caddy's native dynamic streaming compression (`encode zstd gzip`) combined with 1-year immutable caching (`Cache-Control: public, max-age=31536000, immutable`) and version-postfixed assets (`chart.v1.1.0.js`, `htmx.min.v2.0.2.js`, `uPlot.min.v1.6.30.css`).
-- **Pragmatic Architecture Rationale:** 
-  1. *Avoidance of Build-Time Complexity:* Offline generation of twin pre-compressed files (`.br`, `.zst`, `.gz`) across multiple asset versions introduces build toolchain friction, synchronization risks, and repository bloat.
-  2. *Immutable Cache Economics:* Because every asset version is postfixed and served with `immutable`, browsers fetch each static library **exactly once** and cache it locally for up to 1 year. The cumulative CPU cost of on-the-fly compression for a single initial download is negligible (< 0.1 ms).
-  3. *Caddy Native Performance:* Caddy efficiently streams dynamic Zstandard and Gzip compression with zero buffer bloat, providing optimal balance between mechanical efficiency and ruthless engineering pragmatism.
+- **Rationale:** `subarray()` and pre-allocated static tuples completely eliminate V8 GC churn, maintaining a rock-solid 60/120 FPS render loop without frame drops.
 
 ---
 

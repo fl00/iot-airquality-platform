@@ -1,4 +1,4 @@
-# ADR 0004: Rust Central Ingestion Hub & Decoupled Local IPC Telemetry Streaming
+# ADR 0003: Rust Central Ingestion Hub & Decoupled Local IPC Telemetry Streaming
 
 ## Status
 **Accepted & Implemented**

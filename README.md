@@ -223,9 +223,8 @@ The platform enforces a strict **Defense-in-Depth** model designed for secure de
 ## 📑 Architecture Decision Records (ADRs)
 
 - [ADR 0001: Zero-Bloat Bare-Metal Architecture](docs/adr/0001-baremetal-protobuf-fasthtml-influx.md)
-- [ADR 0002: V2 Evolution Roadmap (Single-Binary Rust Engine, DuckDB Parquet, WASM Canvas)](docs/adr/0002-v2-roadmap-single-binary-duckdb-wasm.md)
-- [ADR 0003: Ultra-Minimalist Web Performance Optimizations](docs/adr/0003-ultra-minimalist-web-performance-optimizations.md)
-- [ADR 0004: Rust Central Ingestion Hub & Decoupled Local IPC Telemetry Streaming](docs/adr/0004-rust-central-hub-and-ipc-telemetry-streaming.md)
+- [ADR 0002: Ultra-Minimalist Web Performance & Zero-GC Frontend Optimizations](docs/adr/0002-ultra-minimalist-web-performance-optimizations.md)
+- [ADR 0003: Rust Central Ingestion Hub & Decoupled Local IPC Telemetry Streaming](docs/adr/0003-rust-central-hub-and-ipc-telemetry-streaming.md)
 
 ---
 
