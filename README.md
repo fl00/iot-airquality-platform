@@ -1,6 +1,7 @@
 # Zero-Bloat Bare-Metal IoT Air Quality Platform
 
-[![Architecture](https://img.shields.io/badge/Architecture-Bare--Metal%20Zero--Bloat-00e5a0?style=for-the-badge)](docs/adr/0001-bare-metal-iot-stack-selection.md)
+[![CI Architecture Verification](https://github.com/fl0rent/iot-airquality-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/fl0rent/iot-airquality-platform/actions/workflows/ci.yml)
+[![Architecture](https://img.shields.io/badge/Architecture-Bare--Metal%20Zero--Bloat-00e5a0?style=for-the-badge)](docs/adr/0001-baremetal-protobuf-fasthtml-influx.md)
 [![Rust Ingestor](https://img.shields.io/badge/Rust-Tokio%202.0-orange?style=for-the-badge&logo=rust)](ingestor/)
 [![FastHTML Dashboard](https://img.shields.io/badge/UI-FastHTML%20%2B%20uvloop-blue?style=for-the-badge&logo=python)](dashboard/)
 [![Protobuf Wire](https://img.shields.io/badge/Wire-Nanopb%20Protobuf%20v3-red?style=for-the-badge)](contracts/)
@@ -48,6 +49,29 @@ A high-performance, ultra-low-footprint IoT Air Quality monitoring platform desi
                                                          │   BROWSER (HTMX + uPlot)  │
                                                          │ Zero-GC Canvas Rendering  │
                                                          └───────────────────────────┘
+```
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant ESP as ESP32 (Nanopb)
+    participant MQTT as Mosquitto (:1883)
+    participant Ingest as Rust Ingestor (:9100)
+    participant Influx as InfluxDB (:8086)
+    participant Dashboard as FastHTML (:8000)
+    participant Browser as Browser Canvas (uPlot)
+
+    ESP->>MQTT: Publish Protobuf Keyframe (65B) or Delta (8B)
+    MQTT->>Ingest: Ingest over TCP Event Loop
+    par Micro-Batch Storage
+        Ingest->>Ingest: Aggregate into 12-sample buffer
+        Ingest->>Influx: Batch HTTP Line Protocol Write (HTTP 204)
+    and Live Zero-Copy IPC
+        Ingest->>Dashboard: 16-Byte Base64 SSE Frame (TCP_NODELAY)
+        Dashboard->>Browser: Zero-Allocation Passthrough SSE
+        Browser->>Browser: Unpack ArrayBuffer(16) -> uPlot Float32/Float64
+    end
+    Note over Browser,Influx: History Queries: FastHTML queries Influx directly via SQL with &epoch=s
 ```
 
 ---
@@ -175,6 +199,24 @@ Total Frame Size: Exactly 16 Bytes (128 bits / 24 Base64 characters).
   1. **L1 CPU Cache Line & SIMD Register Fit:** 16 bytes (128 bits) fits exactly into two 64-bit CPU registers, allowing single-instruction atomic copies and zero-allocation DataView unpacking.
   2. **60 FPS Canvas Real-Estate:** Live real-time animations focus on primary human-health metrics ($CO_2$, PM2.5, Temperature, Humidity).
   3. **Tiered Storage Architecture (Hot Live vs Warm/Cold Historical):** Deep diagnostic metrics ($TVOC$, $PM_{10}$, Atmospheric Pressure) are indexed and stored in **InfluxDB**, available on-demand via vectorized SQL queries without incurring wire or CPU overhead on the hot 60 FPS live edge streaming loop.
+
+---
+
+## 🔐 Security Architecture & Secrets Management
+
+The platform enforces a strict **Defense-in-Depth** model designed for secure deployment in untrusted or exposed edge environments:
+
+### 1. Development vs Production Secrets Declaration
+> [!IMPORTANT]
+> - **Local Development & Demo:** The repository provides default sandbox tokens (`INFLUXDB_TOKEN="kH9pBO5KNEvbEh620uQz..."`) configured strictly for local testing on `127.0.0.1`.
+> - **Production Deployment:** In real-world deployments, production tokens **must never be committed to source control**. Pass your secure tokens via Systemd service environment directives (`/etc/systemd/system/iot-*.service.d/override.conf`), Docker secrets, or cloud key vaults (Azure Key Vault, HashiCorp Vault).
+
+### 2. Threat Mitigations & Hardening Scorecard
+- **SQL / InfluxQL Injection Mitigation ([CWE-89](https://cwe.mitre.org/data/definitions/89.html) / [CWE-20](https://cwe.mitre.org/data/definitions/20.html)):** Hardware sensor identifiers in HTTP URL routes are strictly validated against the regex `^[a-zA-Z0-9_-]{1,64}$` before any query interpolation.
+- **Resource Exhaustion & DoS Protection ([CWE-400](https://cwe.mitre.org/data/definitions/400.html)):** Strict concurrency caps (max 64 concurrent SSE clients), bounded queues with *drop-oldest* eviction, and fixed-size circular ring buffers (3,600 points).
+- **Host Process Sandboxing:** All background services run as non-root unprivileged users (`User=iot-service`) with full Linux Systemd sandboxing:
+  `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp=true`, `NoNewPrivileges=true`, `MemoryMax=40M`, `LockPersonality=true`.
+- **Zero-Allocation Embedded Memory ([CWE-120](https://cwe.mitre.org/data/definitions/120.html)):** Nanopb static output stream buffer (`pb_ostream_from_buffer`, 256 bytes) eliminates all `malloc()` invocations in the ESP32 transmission loop, preventing memory leaks and heap fragmentation.
 
 ---
 
