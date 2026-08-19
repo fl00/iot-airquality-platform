@@ -17,37 +17,32 @@ INGESTOR_HOST = os.getenv("INGESTOR_HOST", "127.0.0.1")
 INGESTOR_PORT = int(os.getenv("INGESTOR_PORT", os.getenv("METRICS_PORT", "9100")))
 
 # ==============================================================================
-# Default Sensor State Factory Helper (DRY & KISS)
+# Initial Sensor State Factory Helper (Zero Fake Telemetry)
 # ==============================================================================
-def create_default_sensor_state(
+def create_initial_sensor_state(
     device_id: str,
     name: str = None,
-    location: str = "Facility",
-    co2: int = 500,
-    temp: float = 21.5,
-    hum: float = 45.0,
-    pm25: float = 5.0,
-    battery: int = 3800,
-    rssi: int = -65,
-    seq: int = 100
+    location: str = "Facility"
 ) -> Dict[str, Any]:
-    aqi = compute_aqi(co2, pm25)
+    meta_name, meta_loc = SENSOR_METADATA.get(device_id, (name or f"ESP32 Node {device_id}", location))
     return {
         "device_id": device_id,
-        "name": name or f"Sensor {device_id}",
-        "location": location,
-        "status": "Online",
-        "battery_mv": battery,
-        "rssi_dbm": rssi,
-        "co2_ppm": co2,
-        "temperature": temp,
-        "humidity": hum,
-        "pm25": pm25,
-        "aqi": aqi,
-        "aqi_level": aqi["level"],
-        "last_seen": int(time.time()),
-        "sequence": seq,
+        "name": meta_name,
+        "location": meta_loc,
+        "status": "Waiting for Telemetry",
+        "battery_mv": 0,
+        "rssi_dbm": 0,
+        "co2_ppm": 0,
+        "temperature": 0.0,
+        "humidity": 0.0,
+        "pm25": 0.0,
+        "aqi": compute_aqi(0, 0.0),
+        "aqi_level": 1,
+        "last_seen": 0,
+        "sequence": 0,
     }
+
+create_default_sensor_state = create_initial_sensor_state  # Backward-compatibility alias
 
 # ==============================================================================
 # Thread-Safe In-Memory Sensor State Registry (Concurrency Hardened)

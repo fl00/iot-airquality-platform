@@ -287,8 +287,8 @@ def sensor_detail(sensor_id: str, request: Request):
     if not SENSOR_ID_REGEX.match(sensor_id):
         return Response("Invalid sensor identifier format", status_code=400)
 
-    sensor = sensor_store.get(sensor_id) or create_default_sensor_state(sensor_id)
-    aqi = sensor.get("aqi") or compute_aqi(int(sensor.get("co2_ppm", 500)), float(sensor.get("pm25", 5.0)))
+    sensor = sensor_store.get(sensor_id) or create_initial_sensor_state(sensor_id)
+    aqi = sensor.get("aqi") or compute_aqi(int(sensor.get("co2_ppm", 0)), float(sensor.get("pm25", 0.0)))
 
     # Fetch initial 6h downsampled history in columnar format
     initial_history_raw = influx_service.fetch_sensor_history_columnar(sensor_id, "6h")
