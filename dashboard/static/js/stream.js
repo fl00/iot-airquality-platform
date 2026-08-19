@@ -55,6 +55,17 @@
           var aqiLevel = payload.aqi_level || 1;
         }
 
+        // Auto-transition from empty state to live grid when first telemetry packet arrives
+        const emptyState = document.querySelector(".empty-state-card");
+        if (emptyState) {
+          if (window.htmx) {
+            window.htmx.ajax("GET", "/", { target: "#main-content", swap: "innerHTML" });
+          } else {
+            window.location.reload();
+          }
+          return;
+        }
+
         // 1. Dispatch to active chart if chart engine is currently active
         if (typeof window.onLiveTelemetrySample === "function") {
           window.onLiveTelemetrySample(sensorId, ts, co2, temp, hum, pm25);

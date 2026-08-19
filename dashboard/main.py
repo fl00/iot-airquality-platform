@@ -240,6 +240,19 @@ def render_sensor_card(s: Dict[str, Any]):
         hx_swap="innerHTML"
     )
 
+def render_empty_state():
+    return Div(
+        Div("📡", cls="empty-icon"),
+        H2("En attente de télémétrie des capteurs", cls="empty-title"),
+        P("Aucun nœud IoT n'a émis de signal sur le bus MQTT. Démarrez un capteur physique ou lancez le simulateur avec `make run-mock`.", cls="empty-text"),
+        Div(
+            Span("Ingestor IPC: 127.0.0.1:9100", cls="system-pill"),
+            Span("MQTT Topic: sensors/+/airquality", cls="system-pill"),
+            cls="empty-badges"
+        ),
+        cls="empty-state-card"
+    )
+
 # ==============================================================================
 # Persistent App Shell Wrapper
 # ==============================================================================
@@ -253,13 +266,17 @@ def render_page(inner_content, request: Request):
     )
 
 # ==============================================================================
-# ROUTE: Home View (Responsive Sensor Grid)
+# ROUTE: Home View (Responsive Sensor Grid / Dynamic Auto-Discovery)
 # ==============================================================================
 @app.get("/")
 def home(request: Request):
-    cards = [render_sensor_card(s) for s in sensor_store.get_all()]
-    grid = Div(*cards, cls="sensor-grid", id="sensor-grid-container")
-    return render_page(grid, request)
+    sensors = sensor_store.get_all()
+    if not sensors:
+        content = Div(render_empty_state(), id="sensor-grid-container")
+    else:
+        cards = [render_sensor_card(s) for s in sensors]
+        content = Div(*cards, cls="sensor-grid", id="sensor-grid-container")
+    return render_page(content, request)
 
 # ==============================================================================
 # ROUTE: Sensor Detail View with Interactive uPlot Chart & Timeframe Buttons
