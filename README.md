@@ -225,6 +225,7 @@ The platform enforces a strict **Defense-in-Depth** model designed for secure de
 - [ADR 0001: Zero-Bloat Bare-Metal Architecture](docs/adr/0001-baremetal-protobuf-fasthtml-influx.md)
 - [ADR 0002: Ultra-Minimalist Web Performance & Zero-GC Frontend Optimizations](docs/adr/0002-ultra-minimalist-web-performance-optimizations.md)
 - [ADR 0003: Rust Central Ingestion Hub & Decoupled Local IPC Telemetry Streaming](docs/adr/0003-rust-central-hub-and-ipc-telemetry-streaming.md)
+- [ADR 0004: V2 Evolution — In-Process Embedded DuckDB Engine & Single-File Storage](docs/adr/0004-v2-embedded-duckdb-storage-engine.md)
 
 ---
 
