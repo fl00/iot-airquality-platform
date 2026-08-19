@@ -1,32 +1,31 @@
-# Bare-Metal Operations & Cloud Infrastructure (`iot-airquality-baremetal-ops`)
+# Bare-Metal Operations & Cloud Infrastructure (`deploy/`)
 
 ## 1. System Architecture & Port Mapping
 
 ```
- Internet (Port 80/443)
-          │
-          ▼
-   ┌──────────────┐
-   │ Caddy Proxy  │  (Port 80 / 443 -> 8000, SSE unbuffered)
-   └──────┬───────┘
-          │
-          ▼
-   ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
-   │ FastHTML App │ ───> │  Mosquitto   │ <─── │ ESP32 Nodes  │
-   │ (Port 8000)  │      │ (Port 1883)  │      │ (Protobuf)   │
-   └──────┬───────┘      └──────┬───────┘      └──────────────┘
-          │                     │
-          │                     ▼
-          │              ┌──────────────┐ ───> Prometheus / Metrics
-          │              │ Rust Ingest  │      (Port 9100, Native 0.0.4)
-          │              └──────┬───────┘
-          │                     │
-          ▼                     ▼
-   ┌────────────────────────────────────┐
-   │     InfluxDB v3 (Port 8086)        │
-   │ (Rust / Arrow DataFusion / Parquet)│
-   │ (storage-cache-max-memory: 32MB)   │
-   └────────────────────────────────────┘
+  Internet (Port 80/443)
+           │
+           ▼
+    ┌──────────────┐
+    │ Caddy Proxy  │  (Port 80 / 443 -> 8000, SSE unbuffered)
+    └──────┬───────┘
+           │
+           ▼
+    ┌──────────────┐
+    │ FastHTML App │◄──────── Direct IPC Stream ────────┐
+    │ (Port 8000)  │        (:9100/stream SSE 16B)      │
+    └──────┬───────┘                                    │
+           │                                            │
+           │ Direct SQL                                 │
+           ▼                                            │
+    ┌──────────────┐                             ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
+    │  InfluxDB    │◄──── Micro-Batch Writes ────┤ Rust Ingest  │◄────┤  Mosquitto   │◄────┤ ESP32 Nodes  │
+    │ (Port 8086)  │       (Line Protocol)       │ (Port 9100)  │      │ (Port 1883)  │      │ (Protobuf)   │
+    └──────────────┘                             └──────┬───────┘      └──────────────┘      └──────────────┘
+                                                        │
+                                                        ▼
+                                                Prometheus / Metrics
+                                              (Port 9100, Standard 0.0.4)
 ```
 
 ---

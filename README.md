@@ -180,8 +180,8 @@ Total Frame Size: Exactly 16 Bytes (128 bits / 24 Base64 characters).
 
 ## 📑 Architecture Decision Records (ADRs)
 
-- [ADR 0001: Bare-Metal IoT Stack Selection](docs/adr/0001-bare-metal-iot-stack-selection.md)
-- [ADR 0002: InfluxDB Integration Strategy](docs/adr/0002-influxdb-v3-integration-strategy.md)
+- [ADR 0001: Zero-Bloat Bare-Metal Architecture](docs/adr/0001-baremetal-protobuf-fasthtml-influx.md)
+- [ADR 0002: V2 Evolution Roadmap (Single-Binary Rust Engine, DuckDB Parquet, WASM Canvas)](docs/adr/0002-v2-roadmap-single-binary-duckdb-wasm.md)
 - [ADR 0003: Ultra-Minimalist Web Performance Optimizations](docs/adr/0003-ultra-minimalist-web-performance-optimizations.md)
 - [ADR 0004: Rust Central Ingestion Hub & Decoupled Local IPC Telemetry Streaming](docs/adr/0004-rust-central-hub-and-ipc-telemetry-streaming.md)
 

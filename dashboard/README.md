@@ -38,7 +38,9 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1 --loop uvloop
 To simulate live ESP32 sensors publishing binary Protobuf packets over MQTT, use the firmware tooling generator:
 
 ```bash
-python3 ../iot-airquality-firmware-esp32/tools/mock_publisher.py
+python3 ../firmware/tools/mock_publisher.py
+# Or run from root directory:
+make run-mock
 ```
 
 ---
@@ -58,8 +60,8 @@ To guarantee **zero manual versioning ceremony** and instant cache invalidation 
 
 For a detailed functional explanation of indoor air quality indicators, physiological health impacts, WHO/HCSP reference thresholds, and the **composite AQI / ATMO calculation engine**:
 
-- 🇬🇧 **[English Functional & Health Guide (`docs/AIR_QUALITY_GUIDE_EN.md`)](docs/AIR_QUALITY_GUIDE_EN.md)**
-- 🇫🇷 **[Guide Fonctionnel & Sanitaire en Français (`docs/AIR_QUALITY_GUIDE.md`)](docs/AIR_QUALITY_GUIDE.md)**
+- 🇬🇧 **[English Functional & Health Guide (`docs/AIR_QUALITY_GUIDE_EN.md`)](../docs/AIR_QUALITY_GUIDE_EN.md)**
+- 🇫🇷 **[Guide Fonctionnel & Sanitaire en Français (`docs/AIR_QUALITY_GUIDE.md`)](../docs/AIR_QUALITY_GUIDE.md)**
 
 ---
 

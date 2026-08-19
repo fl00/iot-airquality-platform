@@ -33,6 +33,6 @@ Run the cross-compilation pipeline:
 ```
 
 Generates:
-- **C/C++ (Nanopb):** `../iot-airquality-firmware-esp32/include/air_quality.pb.h` and `../iot-airquality-firmware-esp32/src/air_quality.pb.c`
-- **Rust (Prost):** Auto-generated during Cargo build pipeline in `../iot-airquality-ingestor-rust/`
-- **Python (protoc):** `../iot-airquality-dashboard-ui/proto/air_quality_pb2.py`
+- **C/C++ (Nanopb):** `../firmware/include/air_quality.pb.h` and `../firmware/src/air_quality.pb.c`
+- **Rust (Prost):** `../ingestor/src/proto/` (or auto-generated during Cargo build)
+- **Python (protoc):** `../firmware/tools/proto/air_quality_pb2.py`
