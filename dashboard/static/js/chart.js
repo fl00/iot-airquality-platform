@@ -38,7 +38,7 @@
         drag: { x: true, y: true, uni: 50 },
       },
       scales: {
-        x: { time: true },
+        x: { time: true, auto: true },
         co2: { auto: true },
         temp: { auto: true },
         hum: { auto: true },
@@ -172,10 +172,34 @@
       if (Array.isArray(data) && data.length >= 5) {
         const typedData = loadColumnarIntoTypedArrays(data);
         activeChart.setData(typedData, true);
+        if (typedData[0] && typedData[0].length > 1) {
+          const minX = typedData[0][0];
+          const maxX = typedData[0][typedData[0].length - 1];
+          if (minX < maxX) {
+            activeChart.setScale("x", { min: minX, max: maxX });
+          }
+        }
       }
     } catch (e) {
-      console.error("Failed to parse history data payload", e);
+      console.error("[Chart] Failed to parse history data payload", e);
     }
+  };
+
+  // High-reliability direct timeframe fetcher (zero framework overhead)
+  window.fetchTimeframe = function (sensorId, rangeCode, btnEl) {
+    document.querySelectorAll(".btn-tf").forEach((b) => b.classList.remove("active"));
+    if (btnEl) btnEl.classList.add("active");
+    fetch("/api/v1/sensor/" + encodeURIComponent(sensorId) + "/history?range=" + encodeURIComponent(rangeCode))
+      .then((res) => {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then((data) => {
+        window.updateChartData(data);
+      })
+      .catch((err) => {
+        console.error("[Chart] Timeframe fetch failed:", err);
+      });
   };
 
   // Zero-Allocation live point push using Float32Array in-place shift

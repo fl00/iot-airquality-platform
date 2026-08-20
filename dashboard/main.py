@@ -306,10 +306,7 @@ def sensor_detail(sensor_id: str, request: Request):
         Button(
             label,
             cls=f"btn-tf {active}",
-            hx_get=f"/api/v1/sensor/{sensor_id}/history?range={code}",
-            hx_swap="none",
-            onclick="document.querySelectorAll('.btn-tf').forEach(b=>b.classList.remove('active')); this.classList.add('active');",
-            **{"hx-on:htmx:after-request": "window.updateChartData(event.detail.xhr.response);"}
+            onclick=f"window.fetchTimeframe('{sensor_id}', '{code}', this);"
         )
         for code, label, active in timeframes
     ]
