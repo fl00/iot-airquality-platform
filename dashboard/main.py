@@ -309,7 +309,7 @@ def sensor_detail(sensor_id: str, request: Request):
             hx_get=f"/api/v1/sensor/{sensor_id}/history?range={code}",
             hx_swap="none",
             onclick="document.querySelectorAll('.btn-tf').forEach(b=>b.classList.remove('active')); this.classList.add('active');",
-            hx_on__after_request="window.updateChartData(event.detail.xhr.response);"
+            **{"hx-on:htmx:after-request": "window.updateChartData(event.detail.xhr.response);"}
         )
         for code, label, active in timeframes
     ]

@@ -111,10 +111,10 @@
 
     for (let i = 0; i < len; i++) {
       tsRing[i] = srcTs[i] || 0;
-      co2Ring[i] = srcCo2[i] !== null ? srcCo2[i] : 0;
-      tempRing[i] = srcTemp[i] !== null ? srcTemp[i] : 0;
-      humRing[i] = srcHum[i] !== null ? srcHum[i] : 0;
-      pm25Ring[i] = srcPm25[i] !== null ? srcPm25[i] : 0;
+      co2Ring[i] = (srcCo2[i] !== null && srcCo2[i] !== undefined) ? srcCo2[i] : NaN;
+      tempRing[i] = (srcTemp[i] !== null && srcTemp[i] !== undefined) ? srcTemp[i] : NaN;
+      humRing[i] = (srcHum[i] !== null && srcHum[i] !== undefined) ? srcHum[i] : NaN;
+      pm25Ring[i] = (srcPm25[i] !== null && srcPm25[i] !== undefined) ? srcPm25[i] : NaN;
     }
     ringCount = len;
 
@@ -171,7 +171,7 @@
       const data = typeof rawResponse === "string" ? JSON.parse(rawResponse) : rawResponse;
       if (Array.isArray(data) && data.length >= 5) {
         const typedData = loadColumnarIntoTypedArrays(data);
-        activeChart.setData(typedData);
+        activeChart.setData(typedData, true);
       }
     } catch (e) {
       console.error("Failed to parse history data payload", e);
