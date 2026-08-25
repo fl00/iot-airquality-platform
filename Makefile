@@ -38,7 +38,38 @@ test: ## Run the complete end-to-end platform validation suite
 	@./scripts/test-stack.sh
 
 ## -----------------------------------------------------------------------------
-## 🚀 LOCAL EXECUTION & DEVELOPMENT
+## 🚀 STACK ORCHESTRATION & LIFECYCLE
+## -----------------------------------------------------------------------------
+
+.PHONY: start up
+start: ## Start the entire platform in background (Ingestor, Dashboard, Mock)
+	@./scripts/stack-ctl.sh start
+
+up: start ## Alias for 'make start'
+
+.PHONY: stop down
+stop: ## Gracefully stop all platform background processes (Ingestor, UI, Mock)
+	@./scripts/stack-ctl.sh stop
+
+down: stop ## Alias for 'make stop'
+
+.PHONY: restart
+restart: ## Restart the entire platform stack
+	@./scripts/stack-ctl.sh restart
+
+.PHONY: status
+status: ## Display live runtime status and health of all components
+	@./scripts/stack-ctl.sh status
+
+.PHONY: logs
+logs: ## Stream live logs from all background services (Ctrl+C to exit)
+	@mkdir -p logs
+	@touch logs/ingestor.log logs/dashboard.log logs/mock.log
+	@echo -e "${CYAN}==> Streaming platform logs (Press Ctrl+C to exit)...${NC}\n"
+	@tail -f logs/ingestor.log logs/dashboard.log logs/mock.log
+
+## -----------------------------------------------------------------------------
+## 🚀 FOREGROUND DEV (SINGLE SERVICES)
 ## -----------------------------------------------------------------------------
 
 .PHONY: run-ingestor
@@ -62,7 +93,7 @@ run-dashboard: ## Run FastHTML Dashboard UI in foreground (Port 8000)
 	@cd dashboard && uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1 --loop uvloop
 
 .PHONY: run-mock
-run-mock: ## Run ESP32 Hardware Mock Telemetry Publisher
+run-mock: ## Run ESP32 Hardware Mock Telemetry Publisher in foreground
 	@echo -e "${CYAN}==> Starting Hardware Mock Publisher...${NC}"
 	@python3 ./firmware/tools/mock_publisher.py
 
@@ -71,12 +102,12 @@ run-mock: ## Run ESP32 Hardware Mock Telemetry Publisher
 ## -----------------------------------------------------------------------------
 
 .PHONY: clean
-clean: ## Clean build artifacts, temporary caches, and logs
-	@echo -e "${YELLOW}==> Cleaning build artifacts...${NC}"
+clean: stop ## Clean build artifacts, temporary caches, and logs
+	@echo -e "${YELLOW}==> Cleaning build artifacts and logs...${NC}"
 	@cd ingestor && cargo clean 2>/dev/null || true
 	@find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
-	@rm -f *.log
+	@rm -rf logs
 	@echo -e "${GREEN}✔ Clean completed.${NC}"
 
 ## -----------------------------------------------------------------------------
@@ -90,3 +121,4 @@ help: ## Display this interactive help menu
 	@echo -e "${CYAN}==============================================================================${NC}\n"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 	@echo ""
+
