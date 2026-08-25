@@ -42,19 +42,19 @@ test: ## Run the complete end-to-end platform validation suite
 ## -----------------------------------------------------------------------------
 
 .PHONY: start up
-start: ## Start the entire platform in background (Ingestor, Dashboard, Mock)
+start: ## Start the application platform in background (Ingestor, Dashboard, Mock)
 	@./scripts/stack-ctl.sh start
 
 up: start ## Alias for 'make start'
 
 .PHONY: stop down
-stop: ## Gracefully stop all platform background processes (Ingestor, UI, Mock)
+stop: ## Gracefully stop all platform application processes (Ingestor, UI, Mock)
 	@./scripts/stack-ctl.sh stop
 
 down: stop ## Alias for 'make stop'
 
 .PHONY: restart
-restart: ## Restart the entire platform stack
+restart: ## Restart the entire application platform stack
 	@./scripts/stack-ctl.sh restart
 
 .PHONY: status
@@ -67,6 +67,42 @@ logs: ## Stream live logs from all background services (Ctrl+C to exit)
 	@touch logs/ingestor.log logs/dashboard.log logs/mock.log
 	@echo -e "${CYAN}==> Streaming platform logs (Press Ctrl+C to exit)...${NC}\n"
 	@tail -f logs/ingestor.log logs/dashboard.log logs/mock.log
+
+## -----------------------------------------------------------------------------
+## 🗄️ INFRASTRUCTURE SERVICES (Mosquitto & InfluxDB)
+## -----------------------------------------------------------------------------
+
+.PHONY: start-infra
+start-infra: ## Start both Mosquitto MQTT Broker and InfluxDB Engine
+	@./scripts/stack-ctl.sh start-infra
+
+.PHONY: stop-infra
+stop-infra: ## Stop both Mosquitto MQTT Broker and InfluxDB Engine
+	@./scripts/stack-ctl.sh stop-infra
+
+.PHONY: start-mosquitto
+start-mosquitto: ## Start Mosquitto MQTT Broker (:1883)
+	@./scripts/stack-ctl.sh start-mosquitto
+
+.PHONY: stop-mosquitto
+stop-mosquitto: ## Stop Mosquitto MQTT Broker (:1883)
+	@./scripts/stack-ctl.sh stop-mosquitto
+
+.PHONY: start-influxdb
+start-influxdb: ## Start InfluxDB Time-Series Engine (:8086)
+	@./scripts/stack-ctl.sh start-influxdb
+
+.PHONY: stop-influxdb
+stop-influxdb: ## Stop InfluxDB Time-Series Engine (:8086)
+	@./scripts/stack-ctl.sh stop-influxdb
+
+.PHONY: start-all
+start-all: ## Start EVERYTHING (Infra + Rust Ingestor + Dashboard + Mock)
+	@./scripts/stack-ctl.sh start-all
+
+.PHONY: stop-all
+stop-all: ## Stop EVERYTHING (Mock + Dashboard + Rust Ingestor + Infra)
+	@./scripts/stack-ctl.sh stop-all
 
 ## -----------------------------------------------------------------------------
 ## 🚀 FOREGROUND DEV (SINGLE SERVICES)
