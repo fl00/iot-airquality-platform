@@ -123,39 +123,6 @@ impl IngestorMetrics {
 use tokio::sync::broadcast;
 use crate::sink::MetricSample;
 
-#[derive(Clone, Debug)]
-pub struct TelemetryBroadcast {
-    pub binary_b64: Arc<String>,
-    pub json: Arc<String>,
-}
-
-const B64_TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-/// Fast, zero-allocation base64 encoder for exact 16-byte buffer (produces exact 24-char ASCII string)
-pub fn encode_base64_16(src: &[u8; 16]) -> String {
-    let mut out = [0u8; 24];
-    let mut s = 0;
-    let mut d = 0;
-    for _ in 0..5 {
-        let b0 = src[s] as usize;
-        let b1 = src[s + 1] as usize;
-        let b2 = src[s + 2] as usize;
-        out[d] = B64_TABLE[(b0 >> 2) & 0x3F];
-        out[d + 1] = B64_TABLE[((b0 & 0x03) << 4) | ((b1 >> 4) & 0x0F)];
-        out[d + 2] = B64_TABLE[((b1 & 0x0F) << 2) | ((b2 >> 6) & 0x03)];
-        out[d + 3] = B64_TABLE[b2 & 0x3F];
-        s += 3;
-        d += 4;
-    }
-    let b0 = src[15] as usize;
-    out[d] = B64_TABLE[(b0 >> 2) & 0x3F];
-    out[d + 1] = B64_TABLE[(b0 & 0x03) << 4];
-    out[d + 2] = b'=';
-    out[d + 3] = b'=';
-
-    String::from_utf8(out.to_vec()).unwrap_or_default()
-}
-
 /// Computes normalized AQI level (1..5) using worst-case limiting factor
 pub fn compute_aqi_level(co2_ppm: u32, pm25_ug: f32, tvoc_ppb: f32) -> u8 {
     let sub_co2 = match co2_ppm {
@@ -192,59 +159,22 @@ pub fn compute_aqi_level(co2_ppm: u32, pm25_ug: f32, tvoc_ppb: f32) -> u8 {
     sub_co2.max(sub_pm25).max(sub_tvoc)
 }
 
-/// Maps device_id to 4-bit sensor index (0..15) for 1-byte packing in Byte 15
-pub fn sensor_id_to_index(device_id: &str) -> u8 {
-    match device_id {
-        "sensor-esp32-01" => 0,
-        "sensor-esp32-02" => 1,
-        "sensor-esp32-03" => 2,
-        "sensor-esp32-04" => 3,
-        "sensor-esp32-05" => 4,
-        "sensor-esp32-06" => 5,
-        "sensor-esp32-07" => 6,
-        "sensor-esp32-08" => 7,
-        _ => {
-            if let Some(num_str) = device_id.rsplit('-').next() {
-                if let Ok(num) = num_str.parse::<u8>() {
-                    return (num.saturating_sub(1)) & 0x0F;
-                }
-            }
-            0
-        }
+/// One live-stream event: the sample plus its AQI level, as a JSON object.
+pub fn stream_event_json(sample: &MetricSample) -> String {
+    #[derive(serde::Serialize)]
+    struct StreamEvent<'a> {
+        #[serde(flatten)]
+        sample: &'a MetricSample,
+        aqi_level: u8,
     }
-}
-
-/// Packs MetricSample into ultra-compact 16-byte big-endian binary struct and Base64-encodes it
-pub fn pack_binary_frame_b64(sample: &MetricSample) -> String {
-    let ts = (sample.timestamp_ns / 1_000_000_000) as u32;
-    let co2 = sample.co2_ppm.min(65535) as u16;
-    let temp_centi = (sample.temperature_celsius * 100.0).round().clamp(-32768.0, 32767.0) as i16;
-    let hum_centi = (sample.humidity_percent * 100.0).round().clamp(0.0, 65535.0) as u16;
-    let pm25_centi = (sample.pm25_ug_m3 * 100.0).round().clamp(0.0, 65535.0) as u16;
-    let bat = sample.battery_millivolts.min(65535) as u16;
-    let rssi = sample.rssi_dbm.clamp(-128, 127) as i8;
-
     let aqi_level = compute_aqi_level(sample.co2_ppm, sample.pm25_ug_m3, sample.tvoc_ppb);
-    let sensor_idx = sensor_id_to_index(&sample.device_id);
-    let combined_byte = ((aqi_level & 0x0F) << 4) | (sensor_idx & 0x0F);
-
-    let mut buf = [0u8; 16];
-    buf[0..4].copy_from_slice(&ts.to_be_bytes());
-    buf[4..6].copy_from_slice(&co2.to_be_bytes());
-    buf[6..8].copy_from_slice(&temp_centi.to_be_bytes());
-    buf[8..10].copy_from_slice(&hum_centi.to_be_bytes());
-    buf[10..12].copy_from_slice(&pm25_centi.to_be_bytes());
-    buf[12..14].copy_from_slice(&bat.to_be_bytes());
-    buf[14] = rssi as u8;
-    buf[15] = combined_byte;
-
-    encode_base64_16(&buf)
+    serde_json::to_string(&StreamEvent { sample, aqi_level }).unwrap_or_default()
 }
 
 /// Runs an ultra-lightweight asynchronous HTTP 1.1 listener serving `/metrics` and live `/stream` SSE (0 External Crates)
 pub async fn run_metrics_server(
     metrics: Arc<IngestorMetrics>,
-    stream_tx: broadcast::Sender<TelemetryBroadcast>,
+    stream_tx: broadcast::Sender<Arc<String>>,
     addr: String,
 ) {
     let listener = match TcpListener::bind(&addr).await {
@@ -272,11 +202,8 @@ pub async fn run_metrics_server(
                         }
                         let req_str = String::from_utf8_lossy(&buf[..n]);
                         if req_str.starts_with("GET /stream") || req_str.starts_with("GET /internal/stream") {
-                            // Check if subscriber requested human-readable JSON debug format
-                            let is_json_requested = req_str.contains("format=json");
-
                             // Server-Sent Events (SSE) stream for Dashboard / Downstream consumers
-                            let initial_header = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\nAccess-Control-Allow-Origin: *\r\n\r\n: connected\n\n";
+                            let initial_header = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n: connected\n\n";
                             if socket.write_all(initial_header.as_bytes()).await.is_err() {
                                 return;
                             }
@@ -286,12 +213,7 @@ pub async fn run_metrics_server(
                                     msg_res = rx.recv() => {
                                         match msg_res {
                                             Ok(event) => {
-                                                let payload = if is_json_requested {
-                                                    &event.json
-                                                } else {
-                                                    &event.binary_b64
-                                                };
-                                                let frame = format!("data: {}\n\n", payload);
+                                                let frame = format!("data: {}\n\n", event);
                                                 if socket.write_all(frame.as_bytes()).await.is_err() {
                                                     break;
                                                 }

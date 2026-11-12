@@ -6,24 +6,24 @@ Serializes directly to columnar JSON format [[ts], [co2], [temp], [hum], [pm25]]
 
 import os
 import re
-import time
-import math
-import random
 import http.client
 from urllib.parse import urlparse, quote
-from typing import List, Dict, Any, Tuple
+from typing import Tuple
 import orjson
 
 # Strict regex whitelist for sensor hardware IDs (prevents injection attacks)
 SENSOR_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
 INFLUX_HOST = os.getenv("INFLUXDB_URL", "http://127.0.0.1:8086")
-INFLUX_TOKEN = os.getenv(
-    "INFLUXDB_TOKEN",
-    "kH9pBO5KNEvbEh620uQz_T21DvVnVxb9OsvXAC-YZJN5esopKVVKOCugDTq7aBlcWMjQl5562RyHopbSE2vlow=="
-)
+# No default on purpose: a missing token must fail at start-up (see .env.example).
+INFLUX_TOKEN = os.environ.get("INFLUXDB_TOKEN")
+if not INFLUX_TOKEN:
+    raise RuntimeError("INFLUXDB_TOKEN is not set (see .env.example)")
 INFLUX_DATABASE = os.getenv("INFLUXDB_DATABASE", os.getenv("INFLUXDB_BUCKET", "airquality"))
 INFLUX_ORG = os.getenv("INFLUXDB_ORG", "baremetal-iot")
+
+# Columnar history with no points: [[ts], [co2], [temp], [hum], [pm25]]
+EMPTY_HISTORY = b"[[],[],[],[],[]]"
 
 class InfluxService:
     def __init__(self):
@@ -102,11 +102,11 @@ class InfluxService:
         Queries InfluxDB via SQL and returns high-speed columnar JSON bytes:
         [[timestamp_unix_seconds], [co2_values], [temp_values], [hum_values], [pm25_values]]
         """
-        # Defensive Input Validation against SQL Injection (CWE-89 / CWE-20)
+        # Defensive input validation: the id is interpolated into the query below.
         if not sensor_id or not SENSOR_ID_REGEX.match(sensor_id):
-            return self._generate_synthetic_history("sensor-esp32-01", "6h", 72)
+            return EMPTY_HISTORY
 
-        range_offset, window_interval, point_count = self.get_timeframe_params(range_code)
+        range_offset, window_interval, _ = self.get_timeframe_params(range_code)
 
         try:
             sql_query = (
@@ -118,61 +118,18 @@ class InfluxService:
             )
             result = self._execute_http_sql_query(sql_query)
             series = result.get("results", [{}])[0].get("series", [])
-            if series and "values" in series[0]:
+            if series and series[0].get("values"):
                 values = series[0]["values"]
-                if values:
-                    timestamps = [row[0] for row in values]
-                    co2_list = [round(float(row[1]), 1) if row[1] is not None else None for row in values]
-                    temp_list = [round(float(row[2]), 2) if row[2] is not None else None for row in values]
-                    hum_list = [round(float(row[3]), 1) if row[3] is not None else None for row in values]
-                    pm25_list = [round(float(row[4]), 2) if row[4] is not None else None for row in values]
-                    return orjson.dumps([timestamps, co2_list, temp_list, hum_list, pm25_list])
+                timestamps = [row[0] for row in values]
+                co2_list = [round(float(row[1]), 1) if row[1] is not None else None for row in values]
+                temp_list = [round(float(row[2]), 2) if row[2] is not None else None for row in values]
+                hum_list = [round(float(row[3]), 1) if row[3] is not None else None for row in values]
+                pm25_list = [round(float(row[4]), 2) if row[4] is not None else None for row in values]
+                return orjson.dumps([timestamps, co2_list, temp_list, hum_list, pm25_list])
         except Exception as ex:
-            print(f"[InfluxService] SQL query exception ({ex}). Using synthetic fallback.")
+            print(f"[InfluxService] History query failed: {ex}")
 
-        # Fallback synthetic generator (offline/test mode)
-        return self._generate_synthetic_history(sensor_id, range_code, point_count)
-
-    def _generate_synthetic_history(self, sensor_id: str, range_code: str, count: int) -> bytes:
-        """
-        Generates realistic columnar time-series data for testing and offline development.
-        """
-        now = int(time.time())
-        step_seconds = {
-            "6h": 60,
-            "24h": 300,
-            "7j": 1800,
-            "30j": 7200,
-            "1an": 86400,
-        }.get(range_code.lower(), 60)
-
-        start_time = now - (count * step_seconds)
-        timestamps: List[int] = []
-        co2_vals: List[float] = []
-        temp_vals: List[float] = []
-        hum_vals: List[float] = []
-        pm25_vals: List[float] = []
-
-        base_co2 = 430.0 + (hash(sensor_id) % 50)
-        base_temp = 21.0 + (hash(sensor_id) % 3)
-        base_hum = 45.0 + (hash(sensor_id) % 5)
-
-        for i in range(count):
-            t = start_time + (i * step_seconds)
-            timestamps.append(t)
-            angle = (i / count) * 4 * math.pi
-            noise = (random.random() - 0.5)
-
-            co2 = base_co2 + 120.0 * math.sin(angle) + noise * 15.0
-            temp = base_temp + 3.0 * math.sin(angle * 0.5) + noise * 0.4
-            hum = base_hum + 8.0 * math.cos(angle * 0.5) + noise * 1.0
-            pm25 = max(2.0, 5.5 + 4.0 * math.sin(angle * 1.5) + noise * 2.0)
-
-            co2_vals.append(round(co2, 1))
-            temp_vals.append(round(temp, 2))
-            hum_vals.append(round(hum, 1))
-            pm25_vals.append(round(pm25, 2))
-
-        return orjson.dumps([timestamps, co2_vals, temp_vals, hum_vals, pm25_vals])
+        # No data, or InfluxDB unreachable: an empty chart, never invented values.
+        return EMPTY_HISTORY
 
 influx_service = InfluxService()

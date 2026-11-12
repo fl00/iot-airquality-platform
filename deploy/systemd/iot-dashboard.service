@@ -36,7 +36,8 @@ Environment="INGESTOR_PORT=9100"
 Environment="INFLUXDB_URL=http://127.0.0.1:8086"
 Environment="INFLUXDB_ORG=baremetal-iot"
 Environment="INFLUXDB_BUCKET=airquality"
-Environment="INFLUXDB_TOKEN=baremetal-dev-token-987654321"
+# Secrets (INFLUXDB_TOKEN, MQTT_USER, MQTT_PASSWORD): root-owned file, mode 0640
+EnvironmentFile=/etc/iot-airquality/env
 
 [Install]
 WantedBy=multi-user.target

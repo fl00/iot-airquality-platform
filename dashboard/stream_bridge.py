@@ -47,8 +47,8 @@ def create_initial_sensor_state(
         "pm25": 0.0,
         "aqi": compute_aqi(0, 0.0),
         "aqi_level": 1,
+        "timestamp": 0,
         "last_seen": 0,
-        "sequence": 0,
     }
 
 # ==============================================================================
@@ -128,25 +128,11 @@ def _safe_push_queue(q: asyncio.Queue, item: Any):
         except Exception:
             pass
 
-import struct
-import base64
-
-SENSOR_INDEX_REVERSE_MAP: Dict[int, str] = {
-    0: "sensor-esp32-01",
-    1: "sensor-esp32-02",
-    2: "sensor-esp32-03",
-    3: "sensor-esp32-04",
-    4: "sensor-esp32-05",
-    5: "sensor-esp32-06",
-    6: "sensor-esp32-07",
-    7: "sensor-esp32-08",
-}
-
 class StreamBridge:
     """
     Asynchronous Local IPC Reader.
-    Streams normalized 16-byte binary telemetry frames directly from the Rust Ingestor (:9100/stream).
-    Zero-Copy Passthrough to browser SSE clients with O(1) in-memory state unpack.
+    Reads the JSON event stream of the Rust Ingestor (:9100/stream), keeps the latest
+    state of each sensor in memory and forwards every event to the browser SSE clients.
     """
     def __init__(self):
         self._task: Optional[asyncio.Task] = None
@@ -192,60 +178,15 @@ class StreamBridge:
                     if line_str.startswith("data: "):
                         raw_data = line_str[6:].strip()
                         
-                        # Fast-Path: 16-byte packed binary Base64 frame (24 chars)
-                        if len(raw_data) == 24 and raw_data.endswith("=="):
-                            # 1. Zero-Copy Passthrough directly to FastHTML SSE subscribers
-                            for q in list(sse_subscribers):
-                                _safe_push_queue(q, raw_data)
-
-                            # 2. Fast binary unpack for in-memory sensor_store (for initial page loads / HTML cards)
-                            try:
-                                raw_bytes = base64.b64decode(raw_data)
-                                ts, co2, temp_centi, hum_centi, pm25_centi, bat, rssi, combined = struct.unpack(">IHhHHHbB", raw_bytes)
-                                aqi_level = (combined >> 4) & 0x0F
-                                sensor_idx = combined & 0x0F
-                                device_id = SENSOR_INDEX_REVERSE_MAP.get(sensor_idx, f"sensor-esp32-{sensor_idx+1:02d}")
-
-                                temp = round(temp_centi / 100.0, 2)
-                                hum = round(hum_centi / 100.0, 2)
-                                pm25 = round(pm25_centi / 100.0, 2)
-                                aqi = compute_aqi(co2, pm25)
-                                name, location = sensor_store.get_metadata(device_id)
-
-                                telemetry = {
-                                    "device_id": device_id,
-                                    "name": name,
-                                    "location": location,
-                                    "status": "Online",
-                                    "battery_mv": bat,
-                                    "rssi_dbm": rssi,
-                                    "co2_ppm": co2,
-                                    "temperature": temp,
-                                    "humidity": hum,
-                                    "pm25": pm25,
-                                    "aqi": aqi,
-                                    "aqi_level": aqi_level,
-                                    "last_seen": ts,
-                                    "sequence": ts,
-                                }
-                                sensor_store.update(device_id, telemetry)
-                            except Exception as parse_err:
-                                print(f"[Stream Bridge] Error unpacking binary frame: {parse_err}")
-
-                        elif raw_data.startswith("{"):
-                            # JSON fallback
+                        if raw_data.startswith("{"):
                             try:
                                 sample = orjson.loads(raw_data)
-                                device_id = sample.get("device_id", "unknown-sensor")
-                                
+                                device_id = sample["device_id"]
+
                                 co2 = int(sample.get("co2_ppm", 0))
-                                temp = round(float(sample.get("temperature_celsius", 0.0)), 2)
-                                hum = round(float(sample.get("humidity_percent", 0.0)), 2)
                                 pm25 = round(float(sample.get("pm25_ug_m3", 0.0)), 2)
-                                bat = int(sample.get("battery_millivolts", 3800))
-                                rssi = int(sample.get("rssi_dbm", -65))
-                                
-                                aqi = compute_aqi(co2, pm25)
+                                tvoc = float(sample.get("tvoc_ppb", 0.0))
+                                aqi = compute_aqi(co2, pm25, tvoc)
                                 name, location = sensor_store.get_metadata(device_id)
 
                                 telemetry = {
@@ -253,22 +194,23 @@ class StreamBridge:
                                     "name": name,
                                     "location": location,
                                     "status": "Online",
-                                    "battery_mv": bat,
-                                    "rssi_dbm": rssi,
+                                    "battery_mv": int(sample.get("battery_millivolts", 0)),
+                                    "rssi_dbm": int(sample.get("rssi_dbm", 0)),
                                     "co2_ppm": co2,
-                                    "temperature": temp,
-                                    "humidity": hum,
+                                    "temperature": round(float(sample.get("temperature_celsius", 0.0)), 2),
+                                    "humidity": round(float(sample.get("humidity_percent", 0.0)), 2),
                                     "pm25": pm25,
                                     "aqi": aqi,
-                                    "aqi_level": aqi["level"],
+                                    "aqi_level": int(sample.get("aqi_level", aqi["level"])),
+                                    "timestamp": int(sample.get("timestamp_ns", 0)) // 1_000_000_000,
                                     "last_seen": int(time.time()),
-                                    "sequence": int(sample.get("timestamp_ns", 0) // 1_000_000_000),
                                 }
-
                                 sensor_store.update(device_id, telemetry)
 
+                                # Serialized once, shared by every browser subscriber
+                                event_json = orjson.dumps(telemetry).decode("utf-8")
                                 for q in list(sse_subscribers):
-                                    _safe_push_queue(q, telemetry)
+                                    _safe_push_queue(q, event_json)
 
                             except Exception as parse_err:
                                 print(f"[Stream Bridge] Error parsing incoming sample: {parse_err}")

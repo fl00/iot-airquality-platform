@@ -4,6 +4,10 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
+# Local settings and secrets (INFLUXDB_TOKEN, ...): see .env.example
+-include .env
+export
+
 # Colors for terminal output
 CYAN    := \033[0;36m
 GREEN   := \033[0;32m
@@ -111,17 +115,7 @@ stop-all: ## Stop EVERYTHING (Mock + Dashboard + Rust Ingestor + Infra)
 .PHONY: run-ingestor
 run-ingestor: ## Run Rust Ingestor in foreground (Port 9100 metrics/stream)
 	@echo -e "${CYAN}==> Starting Rust Ingestor...${NC}"
-	@MQTT_BROKER_HOST=127.0.0.1 \
-	 MQTT_BROKER_PORT=1883 \
-	 MQTT_TOPIC="sensors/+/airquality" \
-	 INFLUXDB_URL="http://127.0.0.1:8086" \
-	 INFLUXDB_BUCKET="airquality" \
-	 INFLUXDB_ORG="baremetal-iot" \
-	 INFLUXDB_TOKEN="kH9pBO5KNEvbEh620uQz_T21DvVnVxb9OsvXAC-YZJN5esopKVVKOCugDTq7aBlcWMjQl5562RyHopbSE2vlow==" \
-	 METRICS_PORT=9100 \
-	 METRICS_ENABLED=true \
-	 RUST_LOG="info,iot_airquality_ingestor=debug" \
-	 ./ingestor/target/release/iot-airquality-ingestor
+	@RUST_LOG="info,iot_airquality_ingestor=debug" ./ingestor/target/release/iot-airquality-ingestor
 
 .PHONY: run-dashboard
 run-dashboard: ## Run FastHTML Dashboard UI in foreground (Port 8000)

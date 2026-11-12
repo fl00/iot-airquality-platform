@@ -6,8 +6,6 @@ Architecture: Single-process async FastHTML + HTMX DOM orchestration + Native JS
 import os
 import re
 import time
-import struct
-import base64
 import hashlib
 import asyncio
 from typing import AsyncGenerator, Dict, Any, List
@@ -62,57 +60,6 @@ CRITICAL_CSS = ""
 if os.path.exists(CSS_PATH):
     with open(CSS_PATH, "r", encoding="utf-8") as f:
         CRITICAL_CSS = f.read()
-
-# ==============================================================================
-# Ultra-Compact 16-Byte SSE Binary Protocol (Zero-GC / Minimal Wire Overhead)
-# ==============================================================================
-# Rationale & Design Trade-offs:
-# 1. Wire Overhead: Standard JSON payloads {"co2_ppm":540,...} weigh 140-180 bytes.
-#    This binary frame is strictly 16 bytes (packed via struct, encoded as 24 Base64 chars).
-# 2. V8 Garbage Collection: Parsing JSON objects continuously in JavaScript triggers
-#    frequent GC sweeps. Decoding an ArrayBuffer with DataView performs in-place scalar
-#    extraction with ZERO temporary object allocations.
-# 3. Deterministic Throughput: Exact fixed 16-byte boundary allows sub-millisecond dispatch.
-#
-# Binary Frame Memory Layout (Big-Endian / Network Order):
-# ┌──────────────┬──────────────┬──────────────┬──────────────┬──────────────┬──────────────┬──────────────┬───────────────────────────────┐
-# │ Bytes 0 - 3  │ Bytes 4 - 5  │ Bytes 6 - 7  │ Bytes 8 - 9  │ Bytes 10 - 11│ Bytes 12 - 13│   Byte 14    │            Byte 15            │
-# ├──────────────┼──────────────┼──────────────┼──────────────┼──────────────┼──────────────┼──────────────┼───────────────┬───────────────┤
-# │  Timestamp   │     CO2      │ Temperature  │   Humidity   │    PM2.5     │   Battery    │     RSSI     │   AQI Level   │  Sensor Index │
-# │ uint32 (sec) │ uint16 (ppm) │ int16 (.01°C)│uint16 (.01%) │uint16(.01µg) │ uint16 (mV)  │  int8 (dBm)  │  High Nibble  │  Low Nibble   │
-# │  [0..2^32-1] │  [0..65535]  │[-32768..32767│  [0..65535]  │  [0..65535]  │  [0..65535]  │ [-128..127]  │ 4 bits (1..5) │ 4 bits (0..15)│
-# └──────────────┴──────────────┴──────────────┴──────────────┴──────────────┴──────────────┴──────────────┴───────────────┴───────────────┘
-# Total Size: Exactly 16 Bytes (128 bits).
-
-# Sensor ID mapping for 1-byte compact binary streaming (up to 16 sensors per index map)
-SENSOR_INDEX_MAP: Dict[str, int] = {
-    "sensor-esp32-01": 0,
-    "sensor-esp32-02": 1,
-    "sensor-esp32-03": 2,
-}
-
-def pack_telemetry_binary(telemetry: Dict[str, Any]) -> str:
-    """
-    Packs a telemetry dictionary into an ultra-compact 16-byte big-endian binary struct,
-    then encodes it as Base64 for Server-Sent Events (SSE) wire transport.
-    """
-    ts = int(telemetry.get("last_seen", telemetry.get("timestamp", time.time()))) & 0xFFFFFFFF
-    co2 = max(0, min(65535, int(telemetry.get("co2_ppm", 0))))
-    temp_centi = max(-32768, min(32767, int(round(telemetry.get("temperature", 0.0) * 100))))
-    hum_centi = max(0, min(65535, int(round(telemetry.get("humidity", 0.0) * 100))))
-    pm25_centi = max(0, min(65535, int(round(telemetry.get("pm25", 0.0) * 100))))
-    bat = max(0, min(65535, int(telemetry.get("battery_mv", telemetry.get("battery_millivolts", 0)))))
-    rssi = max(-128, min(127, int(telemetry.get("rssi_dbm", 0))))
-    sensor_id = telemetry.get("device_id", "sensor-esp32-01")
-    sensor_idx = SENSOR_INDEX_MAP.get(sensor_id, 0) & 0x0F
-    
-    # Bitmask packing: AQI (1..5) in bits 7-4, sensor_idx (0..15) in bits 3-0
-    aqi_level = max(1, min(5, int(telemetry.get("aqi_level", telemetry.get("aqi", {}).get("level", 1))))) & 0x0F
-    combined_byte = (aqi_level << 4) | sensor_idx
-
-    # 16-byte fixed struct format: >IHhHHHbB (Big-Endian Network Byte Order)
-    packed = struct.pack(">IHhHHHbB", ts, co2, temp_centi, hum_centi, pm25_centi, bat, rssi, combined_byte)
-    return base64.b64encode(packed).decode("ascii")
 
 # ==============================================================================
 # Native Security Headers Middleware (Defense-in-Depth)
@@ -379,9 +326,8 @@ async def sse_stream(request: Request):
                 if await request.is_disconnected():
                     break
                 try:
-                    telemetry = await asyncio.wait_for(client_queue.get(), timeout=15.0)
-                    b64_frame = telemetry if isinstance(telemetry, str) else pack_telemetry_binary(telemetry)
-                    yield f"data: b64:{b64_frame}\n\n"
+                    event_json = await asyncio.wait_for(client_queue.get(), timeout=15.0)
+                    yield f"data: {event_json}\n\n"
                 except asyncio.TimeoutError:
                     yield ": ping\n\n"
         except asyncio.CancelledError:

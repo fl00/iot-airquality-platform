@@ -1,116 +1,109 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# IoT Air Quality Platform - Automated Bare-Metal Deployment Script
-# Provisions Mosquitto, Tuned InfluxDB v3 (Rust/IOx), Caddy, Rust Ingestor, & FastHTML UI
+# IoT Air Quality Platform - single-host deployment (Debian / Ubuntu)
+# Installs Mosquitto, InfluxDB 2, Caddy, the Rust ingestor and the dashboard.
+# Safe to re-run: existing secrets and the InfluxDB setup are kept.
+#
+# Usage:  make build && sudo ./deploy/deploy-baremetal.sh
 # ==============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+APP_ROOT="/opt/iot-airquality"
+ENV_DIR="/etc/iot-airquality"
+ENV_FILE="${ENV_DIR}/env"
+SENSOR_CREDENTIALS="${ENV_DIR}/sensor-credentials"
+INGESTOR_BIN="${BASE_DIR}/ingestor/target/release/iot-airquality-ingestor"
 
-echo "=============================================================================="
-echo "   Starting Zero-Bloat Bare-Metal IoT Platform Provisioning (InfluxDB v3)    "
-echo "=============================================================================="
-
-# 1. Check Root Privileges
 if [ "$EUID" -ne 0 ]; then
-    echo "ERROR: Please run deploy-baremetal.sh as root (sudo ./deploy-baremetal.sh)"
+    echo "ERROR: run as root (sudo ./deploy/deploy-baremetal.sh)" >&2
+    exit 1
+fi
+if [ ! -x "${INGESTOR_BIN}" ]; then
+    echo "ERROR: ingestor binary not found. Run 'make build' first (as a normal user)." >&2
     exit 1
 fi
 
-# 2. Apply Kernel Performance Tuning
-echo "=== [1/7] Applying Kernel Performance Tuning (sysctl) ==="
-cp "${SCRIPT_DIR}/sysctl.d/99-iot-performance.conf" /etc/sysctl.d/99-iot-performance.conf
-sysctl --system >/dev/null 2>&1 || true
-echo "✔ Kernel performance parameters applied."
-
-# 3. Create Service User
-echo "=== [2/7] Provisioning Dedicated Sandboxed User ==="
-if ! id "iot-service" >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin iot-service
-    echo "✔ Created user 'iot-service'."
-fi
-
-# 4. Install Mosquitto, InfluxDB v3/v2, and Caddy Repositories & Packages
-echo "=== [3/7] Installing Core Packages (Mosquitto, InfluxDB Engine, Caddy, Python3) ==="
+echo "=== [1/6] Packages ==="
 apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    curl wget mosquitto mosquitto-clients caddy python3 python3-pip python3-venv >/dev/null
-
-# Install InfluxDB Engine if not present
+    curl wget gpg openssl mosquitto mosquitto-clients caddy python3 python3-venv >/dev/null
 if ! command -v influxd >/dev/null 2>&1; then
-    echo "Installing InfluxDB repository..."
     wget -q https://repos.influxdata.com/influxdata-archive_compat.key
     gpg --dearmor -o /etc/apt/trusted.gpg.d/influxdata-archive_compat.gpg influxdata-archive_compat.key
     rm -f influxdata-archive_compat.key
-    echo 'deb [signed-by=/etc/apt/trusted.gpg.d/influxdata-archive_compat.gpg] https://repos.influxdata.com/ubuntu noble stable' | tee /etc/apt/sources.list.d/influxdata.list
+    echo 'deb [signed-by=/etc/apt/trusted.gpg.d/influxdata-archive_compat.gpg] https://repos.influxdata.com/debian stable main' \
+        > /etc/apt/sources.list.d/influxdata.list
     apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq influxdb2 influxdb2-cli >/dev/null
 fi
-echo "✔ Infrastructure packages installed."
 
-# 5. Configure Mosquitto & Tune InfluxDB v3 Engine with 90d Retention & Parquet Storage
-echo "=== [4/7] Applying Tuned Mosquitto (8MB RAM Cap) & InfluxDB Config (32MB RAM Limit) ==="
-mkdir -p /etc/mosquitto/conf.d /etc/influxdb /var/lib/influxdb/data
-cp "${SCRIPT_DIR}/mosquitto/mosquitto.conf" /etc/mosquitto/conf.d/99-iot-hardened.conf
-systemctl restart mosquitto || true
-cp "${SCRIPT_DIR}/influxdb/config.yml" /etc/influxdb/config.yml
-chown -R iot-service:iot-service /var/lib/influxdb
-systemctl restart influxdb || true
-sleep 3
+echo "=== [2/6] Service user and secrets ==="
+id iot-service >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin iot-service
+mkdir -p "${ENV_DIR}"
+if [ ! -f "${ENV_FILE}" ]; then
+    # Generated once, never stored in the repository.
+    INFLUXDB_TOKEN="$(openssl rand -hex 32)"
+    INFLUX_ADMIN_PASSWORD="$(openssl rand -hex 16)"
+    MQTT_INGESTOR_PASSWORD="$(openssl rand -hex 16)"
+    MQTT_SENSOR_PASSWORD="$(openssl rand -hex 16)"
 
-# Automated InfluxDB Initial Database Setup (Idempotent)
-if command -v influx >/dev/null 2>&1; then
-    echo "Configuring InfluxDB database/bucket 'airquality' with 90-day retention..."
-    influx setup \
-        --username iotadmin \
-        --password "BareMetalSecurePass2026!" \
-        --org baremetal-iot \
-        --bucket airquality \
-        --retention 2160h \
-        --token "baremetal-dev-token-987654321" \
-        --force >/dev/null 2>&1 || true
-    echo "✔ InfluxDB v3/v2 initialized (Database: airquality, Retention: 90d, Parquet enabled)."
+    cat > "${ENV_FILE}" <<ENV
+INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
+MQTT_USER=ingestor
+MQTT_PASSWORD=${MQTT_INGESTOR_PASSWORD}
+ENV
+    cat > "${SENSOR_CREDENTIALS}" <<CRED
+# Copy these two values into firmware/include/secrets.h
+MQTT_USER=sensor
+MQTT_PASSWORD=${MQTT_SENSOR_PASSWORD}
+# InfluxDB web UI (http://127.0.0.1:8086)
+INFLUX_ADMIN_USER=iotadmin
+INFLUX_ADMIN_PASSWORD=${INFLUX_ADMIN_PASSWORD}
+CRED
+    chown root:iot-service "${ENV_FILE}"
+    chmod 0640 "${ENV_FILE}"
+    chmod 0600 "${SENSOR_CREDENTIALS}"
+
+    echo "=== [3/6] Mosquitto accounts and InfluxDB setup ==="
+    : > /etc/mosquitto/passwd
+    mosquitto_passwd -b /etc/mosquitto/passwd ingestor "${MQTT_INGESTOR_PASSWORD}"
+    mosquitto_passwd -b /etc/mosquitto/passwd sensor "${MQTT_SENSOR_PASSWORD}"
+    chown mosquitto:mosquitto /etc/mosquitto/passwd
+    chmod 0600 /etc/mosquitto/passwd
+
+    systemctl enable --now influxdb
+    sleep 3
+    influx setup --force \
+        --username iotadmin --password "${INFLUX_ADMIN_PASSWORD}" \
+        --org baremetal-iot --bucket airquality --retention 2160h \
+        --token "${INFLUXDB_TOKEN}" >/dev/null
+else
+    echo "=== [3/6] Secrets already present in ${ENV_FILE}: accounts left untouched ==="
 fi
 
-# 6. Deploy FastHTML Dashboard & Python Virtual Environment
-echo "=== [5/7] Setting Up FastHTML Dashboard UI ==="
-APP_ROOT="/opt/iot-airquality"
-mkdir -p "${APP_ROOT}"
-cp -r "${BASE_DIR}/iot-airquality-dashboard-ui" "${APP_ROOT}/"
-cp -r "${BASE_DIR}/iot-airquality-ingestor-rust" "${APP_ROOT}/"
+echo "=== [4/6] Mosquitto configuration ==="
+cp "${SCRIPT_DIR}/mosquitto/mosquitto.conf" /etc/mosquitto/conf.d/99-iot.conf
 
-cd "${APP_ROOT}/iot-airquality-dashboard-ui"
-if [ ! -d ".venv" ]; then
-    python3 -m venv .venv
-fi
-.venv/bin/pip install --upgrade pip -q
-.venv/bin/pip install -r requirements.txt -q
+echo "=== [5/6] Application files ==="
+install -D -m 0755 "${INGESTOR_BIN}" "${APP_ROOT}/ingestor/target/release/iot-airquality-ingestor"
+mkdir -p "${APP_ROOT}/dashboard"
+cp -r "${BASE_DIR}/dashboard/." "${APP_ROOT}/dashboard/"
+[ -d "${APP_ROOT}/dashboard/.venv" ] || python3 -m venv "${APP_ROOT}/dashboard/.venv"
+"${APP_ROOT}/dashboard/.venv/bin/pip" install -q --upgrade pip
+"${APP_ROOT}/dashboard/.venv/bin/pip" install -q -r "${APP_ROOT}/dashboard/requirements.txt"
 chown -R iot-service:iot-service "${APP_ROOT}"
-echo "✔ FastHTML environment configured with InfluxDB v3 SQL support."
 
-# 7. Configure Caddy & Systemd Units
-echo "=== [6/7] Deploying Hardened Systemd Units & Caddy Proxy ==="
-cp "${SCRIPT_DIR}/systemd/iot-ingestor.service" /etc/systemd/system/
-cp "${SCRIPT_DIR}/systemd/iot-dashboard.service" /etc/systemd/system/
+echo "=== [6/6] Services ==="
+cp "${SCRIPT_DIR}/systemd/iot-ingestor.service" "${SCRIPT_DIR}/systemd/iot-dashboard.service" /etc/systemd/system/
 cp "${SCRIPT_DIR}/Caddyfile" /etc/caddy/Caddyfile
-
 systemctl daemon-reload
-systemctl enable mosquitto influxdb caddy iot-dashboard
-systemctl restart mosquitto
-systemctl restart influxdb
-systemctl restart caddy
-systemctl restart iot-dashboard
+systemctl enable mosquitto influxdb caddy iot-ingestor iot-dashboard >/dev/null
+systemctl restart mosquitto influxdb caddy iot-ingestor iot-dashboard
 
-echo "=== [7/7] Deployment Health Validation ==="
 sleep 2
-echo "Status check:"
-echo "- Mosquitto: $(systemctl is-active mosquitto)"
-echo "- InfluxDB:  $(systemctl is-active influxdb)"
-echo "- Dashboard: $(systemctl is-active iot-dashboard)"
-echo "- Caddy:     $(systemctl is-active caddy)"
-
-echo "=============================================================================="
-echo "✔ Bare-Metal IoT Platform (InfluxDB v3 Engine) deployed successfully!"
-echo "  Access Dashboard at: http://localhost (or VM Public IP)"
-echo "=============================================================================="
+for svc in mosquitto influxdb iot-ingestor iot-dashboard caddy; do
+    printf '  %-14s %s\n' "${svc}" "$(systemctl is-active "${svc}")"
+done
+echo "Dashboard: http://<host>/     Sensor MQTT credentials: ${SENSOR_CREDENTIALS}"

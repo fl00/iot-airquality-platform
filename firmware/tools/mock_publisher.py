@@ -31,7 +31,9 @@ def main():
     print("================================================================")
 
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="mock-sensor-publisher")
-    
+    if os.getenv("MQTT_USER"):
+        client.username_pw_set(os.environ["MQTT_USER"], os.getenv("MQTT_PASSWORD", ""))
+
     try:
         client.connect(MQTT_HOST, MQTT_PORT, 60)
         client.loop_start()

@@ -1,18 +1,9 @@
 /**
- * Zero-Bloat Bare-Metal IoT Platform - Global Telemetry Stream & DOM Bridge (v1.0.0)
- * Handles high-speed 16-byte binary SSE streaming, real-time DOM updates,
- * and on-demand sequential chart dependency resolution.
- * Size: ~1.8 KB (Zero external dependencies)
+ * Live telemetry stream: reads JSON events from /api/v1/stream (SSE), updates the
+ * sensor cards and feeds the chart. Also lazy-loads the chart dependencies.
  */
 (function () {
   let eventSource = null;
-  const INDEX_SENSOR_MAP = ["sensor-esp32-01", "sensor-esp32-02", "sensor-esp32-03"];
-
-  // Zero-GC Pre-allocated Static 16-Byte Decode Buffer & DataView
-  const sseStaticBuffer = new ArrayBuffer(16);
-  const sseStaticUint8 = new Uint8Array(sseStaticBuffer);
-  const sseStaticView = new DataView(sseStaticBuffer);
-
   function startSseStream() {
     if (eventSource) return;
     eventSource = new EventSource("/api/v1/stream");
@@ -20,40 +11,16 @@
     eventSource.onmessage = function (event) {
       if (!event.data) return;
       try {
-        let sensorId, ts, co2, temp, hum, pm25, battery, rssi;
-
-        if (event.data.startsWith("b64:")) {
-          // Zero-GC 16-byte packed frame: decodes in-place without object allocations (< 0.005ms)
-          // Frame layout: [0..3: ts (u32)] [4..5: co2 (u16)] [6..7: temp (i16/100)] [8..9: hum (u16/100)]
-          //               [10..11: pm25 (u16/100)] [12..13: bat (u16)] [14: rssi (i8)] [15: aqi(7-4)|sensor_idx(3-0)]
-          const raw = atob(event.data.slice(4));
-          const len = Math.min(raw.length, 16);
-          for (let i = 0; i < len; i++) sseStaticUint8[i] = raw.charCodeAt(i);
-
-          ts = sseStaticView.getUint32(0, false);              // Bytes 0-3: Unix UTC timestamp seconds
-          co2 = sseStaticView.getUint16(4, false);             // Bytes 4-5: CO2 in ppm (0..65535)
-          temp = sseStaticView.getInt16(6, false) / 100.0;     // Bytes 6-7: Temp in centi-Celsius (-327.68..+327.67)
-          hum = sseStaticView.getUint16(8, false) / 100.0;     // Bytes 8-9: Humidity in centi-percent (0..100.00)
-          pm25 = sseStaticView.getUint16(10, false) / 100.0;   // Bytes 10-11: PM2.5 in centi-µg/m3 (0..655.35)
-          battery = sseStaticView.getUint16(12, false);        // Bytes 12-13: Battery in mV (e.g. 3850)
-          rssi = sseStaticView.getInt8(14);                    // Byte 14: Wi-Fi RSSI in dBm (-128..+127)
-          const rawIdx = sseStaticView.getUint8(15);           // Byte 15: Combined bitmask byte
-          const aqiLevel = (rawIdx >> 4) & 0x0F;               // High Nibble (bits 7-4): AQI Level 1..5
-          const sensorIdx = rawIdx & 0x0F;                     // Low Nibble (bits 3-0): Sensor index 0..15
-          sensorId = INDEX_SENSOR_MAP[sensorIdx] || "sensor-esp32-01";
-        } else {
-          // JSON fallback
-          const payload = JSON.parse(event.data);
-          sensorId = payload.device_id;
-          ts = payload.timestamp || Math.floor(Date.now() / 1000);
-          co2 = payload.co2_ppm;
-          temp = payload.temperature;
-          hum = payload.humidity;
-          pm25 = payload.pm25;
-          battery = payload.battery_mv;
-          rssi = payload.rssi_dbm;
-          var aqiLevel = payload.aqi_level || 1;
-        }
+        const payload = JSON.parse(event.data);
+        const sensorId = payload.device_id;
+        const ts = payload.timestamp || Math.floor(Date.now() / 1000);
+        const co2 = payload.co2_ppm;
+        const temp = payload.temperature;
+        const hum = payload.humidity;
+        const pm25 = payload.pm25;
+        const battery = payload.battery_mv;
+        const rssi = payload.rssi_dbm;
+        const aqiLevel = payload.aqi_level;
 
         // Auto-transition from empty state to live grid when first telemetry packet arrives
         const emptyState = document.querySelector(".empty-state-card");

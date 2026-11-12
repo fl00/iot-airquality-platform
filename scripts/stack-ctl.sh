@@ -16,6 +16,11 @@ NC='\033[0m'
 
 mkdir -p "${LOG_DIR}"
 
+# Local settings and secrets (INFLUXDB_TOKEN, ...): see .env.example
+if [ -f "${BASE_DIR}/.env" ]; then
+    set -a; . "${BASE_DIR}/.env"; set +a
+fi
+
 # ------------------------------------------------------------------------------
 # 📦 INFRASTRUCTURE SERVICES (Mosquitto & InfluxDB)
 # ------------------------------------------------------------------------------
@@ -142,6 +147,10 @@ cmd_stop() {
 
 cmd_start() {
     mkdir -p "${LOG_DIR}"
+    if [ -z "${INFLUXDB_TOKEN:-}" ]; then
+        echo -e "${RED}✖ INFLUXDB_TOKEN is not set. Copy .env.example to .env and fill it in.${NC}"
+        exit 1
+    fi
     echo -e "${CYAN}==> Checking Core Infrastructure (Mosquitto & InfluxDB)...${NC}"
     if ! nc -z 127.0.0.1 1883 2>/dev/null; then
         echo -e "${YELLOW}  ⚠ Notice: Mosquitto is stopped. Starting it now...${NC}"
@@ -165,15 +174,6 @@ cmd_start() {
 
     # 1. Start Rust Ingestor
     echo -e "${CYAN}==> Starting Rust Ingestion Hub (:9100)...${NC}"
-    MQTT_BROKER_HOST="127.0.0.1" \
-    MQTT_BROKER_PORT=1883 \
-    MQTT_TOPIC="sensors/+/airquality" \
-    INFLUXDB_URL="http://127.0.0.1:8086" \
-    INFLUXDB_BUCKET="airquality" \
-    INFLUXDB_ORG="baremetal-iot" \
-    INFLUXDB_TOKEN="kH9pBO5KNEvbEh620uQz_T21DvVnVxb9OsvXAC-YZJN5esopKVVKOCugDTq7aBlcWMjQl5562RyHopbSE2vlow==" \
-    METRICS_PORT=9100 \
-    METRICS_ENABLED=true \
     RUST_LOG="info,iot_airquality_ingestor=debug" \
     setsid "${BASE_DIR}/ingestor/target/release/iot-airquality-ingestor" </dev/null > "${LOG_DIR}/ingestor.log" 2>&1 &
     PID_INGEST=$!

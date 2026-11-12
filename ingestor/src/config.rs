@@ -8,6 +8,8 @@ pub struct AppConfig {
     pub mqtt_port: u16,
     pub mqtt_client_id: String,
     pub mqtt_topic: String,
+    pub mqtt_user: Option<String>,
+    pub mqtt_password: Option<String>,
     pub influx_url: String,
     pub influx_org: String,
     pub influx_bucket: String,
@@ -32,13 +34,18 @@ impl AppConfig {
                 .unwrap_or_else(|_| "iot-airquality-ingestor-rust".to_string()),
             mqtt_topic: env::var("MQTT_TOPIC")
                 .unwrap_or_else(|_| "sensors/+/airquality".to_string()),
+            mqtt_user: env::var("MQTT_USER").ok().filter(|v| !v.is_empty()),
+            mqtt_password: env::var("MQTT_PASSWORD").ok().filter(|v| !v.is_empty()),
             influx_url: env::var("INFLUXDB_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:8086".to_string()),
             influx_org: env::var("INFLUXDB_ORG").unwrap_or_else(|_| "baremetal-iot".to_string()),
             influx_bucket: env::var("INFLUXDB_BUCKET")
                 .unwrap_or_else(|_| "airquality".to_string()),
+            // No default on purpose: a wrong token must fail at start-up, not at the first write.
             influx_token: env::var("INFLUXDB_TOKEN")
-                .unwrap_or_else(|_| "baremetal-dev-token-987654321".to_string()),
+                .ok()
+                .filter(|v| !v.is_empty())
+                .expect("INFLUXDB_TOKEN is not set (see .env.example)"),
             batch_size: env::var("INGESTOR_BATCH_SIZE")
                 .ok()
                 .and_then(|b| b.parse().ok())
