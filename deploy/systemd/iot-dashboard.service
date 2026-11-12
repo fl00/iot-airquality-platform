@@ -1,5 +1,5 @@
 [Unit]
-Description=Zero-Bloat Bare-Metal FastHTML Dashboard Service
+Description=IoT Air Quality dashboard
 After=network.target influxdb.service iot-ingestor.service
 Wants=iot-ingestor.service
 

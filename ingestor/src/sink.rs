@@ -1,29 +1,13 @@
-//! Metric Sink Abstraction & InfluxDB v2 Line Protocol Batch Engine
+//! InfluxDB v2 writer (line protocol over HTTP).
 
 use std::fmt::Write;
-use std::sync::Arc;
 use std::time::Duration;
-use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
-use thiserror::Error;
-use tracing::{debug, error, warn};
+use reqwest::StatusCode;
 
-use crate::circuit_breaker::CircuitBreaker;
 use crate::config::AppConfig;
 
-#[derive(Error, Debug)]
-pub enum SinkError {
-    #[error("HTTP transport error: {0}")]
-    Transport(#[from] reqwest::Error),
-    #[error("Upstream server error (status: {0})")]
-    ServerError(reqwest::StatusCode),
-    #[error("Client error (status: {0}): {1}")]
-    ClientError(reqwest::StatusCode, String),
-    #[error("Circuit breaker open - write rejected")]
-    CircuitBreakerOpen,
-}
-
-/// Normalized in-memory telemetry metric sample
+/// One measurement, ready to be stored and streamed.
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct MetricSample {
     pub device_id: String,
@@ -40,16 +24,17 @@ pub struct MetricSample {
     pub status: i32,
 }
 
-#[async_trait]
-pub trait MetricSink: Send + Sync {
-    async fn write_batch(&self, samples: &[MetricSample]) -> Result<(), SinkError>;
+#[derive(Debug)]
+pub enum WriteError {
+    /// InfluxDB unreachable or failing (network, 5xx, 401...): the same batch can be retried.
+    Retryable(String),
+    /// InfluxDB refused the data itself (HTTP 400): retrying cannot succeed.
+    Rejected(String),
 }
 
-/// High-performance InfluxDB v2 Sink using Line Protocol
 pub struct InfluxDbSink {
     client: reqwest::Client,
     write_url: String,
-    circuit_breaker: Arc<CircuitBreaker>,
 }
 
 impl InfluxDbSink {
@@ -58,109 +43,119 @@ impl InfluxDbSink {
         headers.insert(
             AUTHORIZATION,
             HeaderValue::from_str(&format!("Token {}", config.influx_token))
-                .expect("Valid Influx token header"),
+                .expect("INFLUXDB_TOKEN contains characters that are not valid in an HTTP header"),
         );
-        headers.insert(
-            CONTENT_TYPE,
-            HeaderValue::from_static("text/plain; charset=utf-8"),
-        );
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/plain; charset=utf-8"));
 
         let client = reqwest::Client::builder()
             .default_headers(headers)
             .timeout(Duration::from_secs(5))
-            .pool_idle_timeout(Duration::from_secs(90))
-            .pool_max_idle_per_host(4)
-            .tcp_nodelay(true)
             .build()
             .expect("Failed to build InfluxDB HTTP client");
 
         let write_url = format!(
-            "{}/api/v2/write?db={}&bucket={}&org={}&precision=ns",
+            "{}/api/v2/write?bucket={}&org={}&precision=ns",
             config.influx_url.trim_end_matches('/'),
-            config.influx_bucket,
             config.influx_bucket,
             config.influx_org
         );
 
-        let circuit_breaker = Arc::new(CircuitBreaker::new(
-            config.circuit_breaker_threshold,
-            Duration::from_secs(config.circuit_breaker_cooldown_secs),
-        ));
-
-        Self {
-            client,
-            write_url,
-            circuit_breaker,
-        }
+        Self { client, write_url }
     }
 
-    pub fn circuit_breaker(&self) -> &Arc<CircuitBreaker> {
-        &self.circuit_breaker
-    }
-
-    /// Formats a batch of `MetricSample` records into compact Influx Line Protocol lines (Zero-Allocation)
-    pub fn format_line_protocol(samples: &[MetricSample]) -> String {
-        let mut buffer = String::with_capacity(samples.len() * 128);
-        for s in samples {
-            // air_quality,device_id=sensor-01 co2=650i,temperature=22.45,humidity=48.20,pm25=8.10,pm10=12.96,tvoc=85.00,pressure=1013.25,battery_mv=3850i,rssi=-65i,status=0i 1692374400000000000
-            let _ = writeln!(
-                buffer,
-                "air_quality,device_id={} co2={}i,temperature={:.2},humidity={:.2},pm25={:.2},pm10={:.2},tvoc={:.2},pressure={:.2},battery_mv={}i,rssi={}i,status={}i {}",
-                s.device_id,
-                s.co2_ppm,
-                s.temperature_celsius,
-                s.humidity_percent,
-                s.pm25_ug_m3,
-                s.pm10_ug_m3,
-                s.tvoc_ppb,
-                s.pressure_hpa,
-                s.battery_millivolts,
-                s.rssi_dbm,
-                s.status,
-                s.timestamp_ns
-            );
-        }
-        buffer
-    }
-}
-
-#[async_trait]
-impl MetricSink for InfluxDbSink {
-    async fn write_batch(&self, samples: &[MetricSample]) -> Result<(), SinkError> {
-        if samples.is_empty() {
-            return Ok(());
-        }
-
-        if !self.circuit_breaker.can_execute() {
-            warn!("[Sink] Write dropped: Circuit breaker is OPEN.");
-            return Err(SinkError::CircuitBreakerOpen);
-        }
-
-        let body = Self::format_line_protocol(samples);
-        debug!("[Sink] Flushing batch of {} points to InfluxDB", samples.len());
-
-        let response = match self.client.post(&self.write_url).body(body).send().await {
-            Ok(res) => res,
-            Err(err) => {
-                self.circuit_breaker.record_failure();
-                error!("[Sink] HTTP request error: {}", err);
-                return Err(SinkError::Transport(err));
-            }
-        };
+    pub async fn write_batch(&self, samples: &[MetricSample]) -> Result<(), WriteError> {
+        let body = format_line_protocol(samples);
+        let response = self
+            .client
+            .post(&self.write_url)
+            .body(body)
+            .send()
+            .await
+            .map_err(|e| WriteError::Retryable(e.to_string()))?;
 
         let status = response.status();
         if status.is_success() {
-            self.circuit_breaker.record_success();
-            debug!("[Sink] InfluxDB write successful (HTTP {})", status);
-            Ok(())
-        } else if status.is_server_error() {
-            self.circuit_breaker.record_failure();
-            error!("[Sink] InfluxDB server error (HTTP {})", status);
-            Err(SinkError::ServerError(status))
-        } else {
-            let err_text = response.text().await.unwrap_or_default();
-            error!("[Sink] InfluxDB client error (HTTP {}): {}", status, err_text);
-            Err(SinkError::ClientError(status, err_text))
+            return Ok(());
         }
+        let detail = format!("HTTP {}: {}", status, response.text().await.unwrap_or_default());
+        if status == StatusCode::BAD_REQUEST {
+            Err(WriteError::Rejected(detail))
+        } else {
+            Err(WriteError::Retryable(detail))
+        }
+    }
+}
+
+/// One line per sample:
+/// `air_quality,device_id=<id> co2=650i,temperature=22.45,...,status=0i <timestamp_ns>`
+///
+/// A node reports 0 for a missing sensor. 0 ppm CO2 and 0 hPa cannot be real
+/// measurements, so these two fields are omitted instead of polluting the averages.
+/// `device_id` is validated upstream (no escaping needed).
+pub fn format_line_protocol(samples: &[MetricSample]) -> String {
+    let mut out = String::with_capacity(samples.len() * 160);
+    for s in samples {
+        let _ = write!(out, "air_quality,device_id={} ", s.device_id);
+        if s.co2_ppm > 0 {
+            let _ = write!(out, "co2={}i,", s.co2_ppm);
+        }
+        if s.pressure_hpa > 0.0 {
+            let _ = write!(out, "pressure={:.2},", s.pressure_hpa);
+        }
+        let _ = writeln!(
+            out,
+            "temperature={:.2},humidity={:.2},pm25={:.2},pm10={:.2},tvoc={:.2},battery_mv={}i,rssi={}i,status={}i {}",
+            s.temperature_celsius,
+            s.humidity_percent,
+            s.pm25_ug_m3,
+            s.pm10_ug_m3,
+            s.tvoc_ppb,
+            s.battery_millivolts,
+            s.rssi_dbm,
+            s.status,
+            s.timestamp_ns
+        );
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample() -> MetricSample {
+        MetricSample {
+            device_id: "kitchen".into(),
+            timestamp_ns: 1_794_000_000_000_000_000,
+            co2_ppm: 650,
+            temperature_celsius: 22.456,
+            humidity_percent: 48.2,
+            pm25_ug_m3: 8.1,
+            pm10_ug_m3: 12.0,
+            tvoc_ppb: 500.0,
+            pressure_hpa: 1013.25,
+            battery_millivolts: 0,
+            rssi_dbm: -65,
+            status: 0,
+        }
+    }
+
+    #[test]
+    fn line_protocol_full_sample() {
+        assert_eq!(
+            format_line_protocol(&[sample()]),
+            "air_quality,device_id=kitchen co2=650i,pressure=1013.25,temperature=22.46,humidity=48.20,\
+             pm25=8.10,pm10=12.00,tvoc=500.00,battery_mv=0i,rssi=-65i,status=0i 1794000000000000000\n"
+        );
+    }
+
+    #[test]
+    fn line_protocol_omits_impossible_zeros() {
+        let mut s = sample();
+        s.co2_ppm = 0;
+        s.pressure_hpa = 0.0;
+        let line = format_line_protocol(&[s]);
+        assert!(!line.contains("co2=") && !line.contains("pressure="), "{line}");
+        assert!(line.starts_with("air_quality,device_id=kitchen temperature="), "{line}");
     }
 }

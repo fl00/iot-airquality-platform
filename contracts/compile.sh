@@ -1,59 +1,36 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# IoT Air Quality Platform - Protobuf Contract Compiler
-# Generates C++ (Nanopb), Rust (Prost), and Python (protoc) language bindings.
-# ==============================================================================
+# Regenerates the language bindings of contracts/proto/air_quality.proto.
+#
+#   Python (mock publisher, tests)  firmware/tools/proto/air_quality_pb2.py   protoc or grpc_tools
+#   C (firmware, Nanopb)            firmware/include|src/air_quality.pb.{h,c}  nanopb_generator.py
+#   Rust (ingestor, Prost)          ingestor/src/proto/mod.rs                  maintained by hand
+#
+# A generator that is not installed is skipped: the committed bindings are then
+# kept, and must be updated by hand if the contract changed.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROTO_SRC="${SCRIPT_DIR}/proto/air_quality.proto"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-
-echo "=== [1/4] Validating Protobuf Contract Sources ==="
-if [ ! -f "${PROTO_SRC}" ]; then
-    echo "ERROR: Proto file not found at ${PROTO_SRC}"
-    exit 1
-fi
-echo "Found schema: ${PROTO_SRC}"
-
-# 1. Generate Python Bindings for Hardware Firmware Simulator / Mock
-echo "=== [2/4] Generating Python Protobuf Bindings for Firmware Tools ==="
+PROTO_DIR="${SCRIPT_DIR}/proto"
+PROTO_SRC="${PROTO_DIR}/air_quality.proto"
 PY_OUT="${ROOT_DIR}/firmware/tools/proto"
-mkdir -p "${PY_OUT}"
-if command -v protoc >/dev/null 2>&1; then
-    protoc -I="${SCRIPT_DIR}/proto" --python_out="${PY_OUT}" "${PROTO_SRC}"
-    touch "${PY_OUT}/__init__.py"
-    echo "✔ Python bindings generated in ${PY_OUT} via protoc"
-elif python3 -m grpc_tools.protoc --version >/dev/null 2>&1; then
-    python3 -m grpc_tools.protoc -I="${SCRIPT_DIR}/proto" --python_out="${PY_OUT}" "${PROTO_SRC}"
-    touch "${PY_OUT}/__init__.py"
-    echo "✔ Python bindings generated in ${PY_OUT} via python3 -m grpc_tools.protoc"
-else
-    echo "⚠ protoc not found; skipping python tooling compilation."
-fi
 
-# 2. Generate C++ / Nanopb Bindings for ESP32 Firmware
-echo "=== [3/4] Generating Nanopb C/C++ Bindings for ESP32 ==="
-NANOPB_INCLUDE_DIR="${ROOT_DIR}/firmware/include"
-NANOPB_SRC_DIR="${ROOT_DIR}/firmware/src"
-mkdir -p "${NANOPB_INCLUDE_DIR}" "${NANOPB_SRC_DIR}"
+if command -v protoc >/dev/null 2>&1; then
+    protoc -I"${PROTO_DIR}" --python_out="${PY_OUT}" "${PROTO_SRC}"
+    echo "Python bindings regenerated (protoc)."
+elif python3 -c "import grpc_tools" >/dev/null 2>&1; then
+    python3 -m grpc_tools.protoc -I"${PROTO_DIR}" --python_out="${PY_OUT}" "${PROTO_SRC}"
+    echo "Python bindings regenerated (grpc_tools)."
+else
+    echo "Python bindings NOT regenerated: install protoc or 'pip install grpcio-tools'."
+fi
 
 if command -v nanopb_generator.py >/dev/null 2>&1; then
-    nanopb_generator.py -I "${SCRIPT_DIR}/proto" -D "${NANOPB_INCLUDE_DIR}" "${PROTO_SRC}"
-    if [ -f "${NANOPB_INCLUDE_DIR}/air_quality.pb.c" ]; then
-        mv "${NANOPB_INCLUDE_DIR}/air_quality.pb.c" "${NANOPB_SRC_DIR}/"
-    fi
-    echo "✔ Nanopb bindings generated for ESP32."
+    nanopb_generator.py -I "${PROTO_DIR}" -D "${ROOT_DIR}/firmware/include" "${PROTO_SRC}"
+    mv "${ROOT_DIR}/firmware/include/air_quality.pb.c" "${ROOT_DIR}/firmware/src/"
+    echo "Nanopb bindings regenerated."
 else
-    echo "ℹ Using optimized pre-generated Nanopb bindings in firmware repository."
+    echo "Nanopb bindings NOT regenerated: nanopb_generator.py not found."
 fi
 
-# 3. Generate Rust Prost Bindings for Ingestor
-echo "=== [4/4] Generating Rust Prost Bindings ==="
-RUST_OUT="${ROOT_DIR}/ingestor/src/proto"
-mkdir -p "${RUST_OUT}"
-echo "ℹ Rust Prost bindings will be automatically compiled via cargo build.rs or pre-compiled module."
-
-echo "=============================================================================="
-echo "✔ Protobuf contract compilation completed successfully."
-echo "=============================================================================="
+echo "Rust bindings are maintained by hand: ingestor/src/proto/mod.rs."

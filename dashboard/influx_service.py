@@ -1,7 +1,6 @@
 """
-InfluxDB High-Speed Vectorized SQL Query Service for FastHTML Dashboard.
-Executes downsampled SQL / InfluxQL aggregations over a persistent HTTP Keep-Alive connection.
-Serializes directly to columnar JSON format [[ts], [co2], [temp], [hum], [pm25]] for uPlot.
+History queries against InfluxDB (InfluxQL over HTTP, standard library only).
+Results are columnar JSON for uPlot: [[ts], [co2], [temp], [hum], [pm25]].
 """
 
 import os
@@ -12,7 +11,7 @@ from typing import Tuple
 import orjson
 
 # Strict regex whitelist for sensor hardware IDs (prevents injection attacks)
-SENSOR_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+SENSOR_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,31}$")
 
 INFLUX_HOST = os.getenv("INFLUXDB_URL", "http://127.0.0.1:8086")
 # No default on purpose: a missing token must fail at start-up (see .env.example).
@@ -20,68 +19,35 @@ INFLUX_TOKEN = os.environ.get("INFLUXDB_TOKEN")
 if not INFLUX_TOKEN:
     raise RuntimeError("INFLUXDB_TOKEN is not set (see .env.example)")
 INFLUX_DATABASE = os.getenv("INFLUXDB_DATABASE", os.getenv("INFLUXDB_BUCKET", "airquality"))
-INFLUX_ORG = os.getenv("INFLUXDB_ORG", "baremetal-iot")
 
 # Columnar history with no points: [[ts], [co2], [temp], [hum], [pm25]]
 EMPTY_HISTORY = b"[[],[],[],[],[]]"
 
 class InfluxService:
     def __init__(self):
-        # Persistent standard library HTTP Keep-Alive connection (Zero external dependency)
         self._parsed_url = urlparse(INFLUX_HOST)
-        self._http_conn = None
-        self._init_http_connection()
 
-    def _init_http_connection(self):
-        """
-        Initializes or resets a persistent HTTP Keep-Alive socket connection.
-        Avoids repeated TCP handshakes on consecutive downsampled history queries.
-        """
+    def _execute_http_sql_query(self, query: str) -> dict:
+        """Runs an InfluxQL query (epoch=s: integer Unix timestamps). Raises on failure."""
+        is_ssl = self._parsed_url.scheme == "https"
+        conn_cls = http.client.HTTPSConnection if is_ssl else http.client.HTTPConnection
+        # One short-lived connection per query: handlers run in a thread pool and
+        # http.client connections are not thread-safe.
+        conn = conn_cls(
+            self._parsed_url.hostname or "127.0.0.1",
+            self._parsed_url.port or (443 if is_ssl else 8086),
+            timeout=10.0,
+        )
         try:
-            if self._http_conn:
-                try:
-                    self._http_conn.close()
-                except Exception:
-                    pass
-            is_ssl = self._parsed_url.scheme == "https"
-            conn_cls = http.client.HTTPSConnection if is_ssl else http.client.HTTPConnection
-            host = self._parsed_url.hostname or "127.0.0.1"
-            port = self._parsed_url.port or (443 if is_ssl else 8086)
-            self._http_conn = conn_cls(host, port, timeout=2.0)
-        except Exception as ex:
-            print(f"[InfluxService] HTTP socket initialization warning: {ex}")
-            self._http_conn = None
-
-    def _execute_http_sql_query(self, sql_query: str) -> dict:
-        """
-        Executes a SQL/InfluxQL query over the persistent Keep-Alive socket with epoch=s (Unix integer timestamps).
-        """
-        headers = {
-            "Authorization": f"Token {INFLUX_TOKEN}",
-            "Accept": "application/json",
-            "Connection": "keep-alive"
-        }
-        encoded_query = quote(sql_query)
-        path = f"{self._parsed_url.path.rstrip('/')}/query?db={INFLUX_DATABASE}&epoch=s&q={encoded_query}"
-
-        for attempt in range(2):
-            try:
-                if self._http_conn is None:
-                    self._init_http_connection()
-                if self._http_conn is None:
-                    break
-                self._http_conn.request("GET", path, headers=headers)
-                resp = self._http_conn.getresponse()
-                if resp.status == 200:
-                    raw_bytes = resp.read()
-                    return orjson.loads(raw_bytes)
-                else:
-                    resp.read() # Drain response body
-                    break
-            except (http.client.HTTPException, ConnectionError, OSError):
-                # Socket timed out or closed by server; reset and retry once
-                self._init_http_connection()
-        return {}
+            path = f"{self._parsed_url.path.rstrip('/')}/query?db={INFLUX_DATABASE}&epoch=s&q={quote(query)}"
+            conn.request("GET", path, headers={"Authorization": f"Token {INFLUX_TOKEN}", "Accept": "application/json"})
+            resp = conn.getresponse()
+            body = resp.read()
+            if resp.status != 200:
+                raise RuntimeError(f"InfluxDB answered HTTP {resp.status}")
+            return orjson.loads(body)
+        finally:
+            conn.close()
 
     def get_timeframe_params(self, range_code: str) -> Tuple[str, str, int]:
         """

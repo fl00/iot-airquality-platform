@@ -1,10 +1,6 @@
 /**
- * Zero-Bloat Bare-Metal IoT Air Quality Chart Engine (v1.2.0)
- * Dedicated uPlot 2D Canvas Integration (Loaded only on Sensor History views)
- * Features:
- *   1. Zero-Allocation TypedArray Ring-Buffers (Float64Array & Float32Array)
- *   2. Zero V8 Garbage Collection churn in active live streaming loop
- *   3. Dynamic resolution and auto-resize handling
+ * History and live chart of one sensor (uPlot). Loaded on the sensor detail view only.
+ * Points are kept in fixed-size typed arrays (3,600 points).
  */
 
 (function () {
@@ -12,7 +8,7 @@
   let activeSensorId = null;
   const MAX_RING_POINTS = 3600;
 
-  // Zero-GC Pre-Allocated Contiguous TypedArray Buffers
+  // Fixed-size buffers, allocated once
   const tsRing = new Float64Array(MAX_RING_POINTS);
   const co2Ring = new Float32Array(MAX_RING_POINTS);
   const tempRing = new Float32Array(MAX_RING_POINTS);

@@ -1,5 +1,5 @@
 /**
- * Sensor snapshot -> AirQualityPacket (FullSample keyframe) encoding.
+ * Sensor snapshot -> AirQualityPacket encoding.
  * Pure C++ on top of Nanopb: no Arduino dependency, so it is unit-tested on
  * the host (see test_host/).
  */
@@ -36,12 +36,12 @@ inline iot_airquality_SensorStatus compute_status(const SensorSnapshot &s) {
 }
 
 /**
- * Encodes one keyframe into `buf`. Returns the encoded size, 0 on failure.
+ * Encodes one packet into `buf`. Returns the encoded size, 0 on failure.
  * A missing sensor reports 0 for its fields (the ingestor formats floats
  * straight into Influx line protocol, so NaN is not an option); consumers
  * must rely on `status` to discard them.
  */
-inline size_t encode_keyframe(iot_airquality_AirQualityPacket *pkt,
+inline size_t encode_packet(iot_airquality_AirQualityPacket *pkt,
                               const char *device_id, uint32_t sequence,
                               uint64_t unix_ts_sec, int32_t rssi_dbm,
                               uint32_t battery_mv, const SensorSnapshot &s,
@@ -53,9 +53,9 @@ inline size_t encode_keyframe(iot_airquality_AirQualityPacket *pkt,
     pkt->battery_millivolts = battery_mv;
     pkt->rssi_dbm           = rssi_dbm;
     pkt->status             = compute_status(s);
-    pkt->which_payload      = iot_airquality_AirQualityPacket_full_sample_tag;
+    pkt->has_full_sample    = true;
 
-    iot_airquality_FullSample *fs = &pkt->payload.full_sample;
+    iot_airquality_FullSample *fs = &pkt->full_sample;
     if (s.bme_ok) {
         fs->temperature_celsius = s.temperature_c;
         fs->humidity_percent    = s.humidity_pct;

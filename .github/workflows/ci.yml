@@ -1,49 +1,31 @@
-name: CI & Architecture Verification Suite
+name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
-  validate:
-    name: Build & Architectural Verification
+  test:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
+          cache: pip
 
-      - name: Install System Dependencies & Protoc
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler mosquitto mosquitto-clients
+          sudo apt-get install -y mosquitto
+          sudo systemctl stop mosquitto
+          pip install -r dashboard/requirements.txt protobuf paho-mqtt
+          git clone --quiet --depth 1 --branch 0.4.9 https://github.com/nanopb/nanopb.git "$RUNNER_TEMP/nanopb"
 
-      - name: Install Python Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r dashboard/requirements.txt
-          pip install protobuf paho-mqtt
-
-      - name: Compile Protobuf Contracts & Build Rust Ingestor (make build)
-        run: make build
-
-      - name: Run Complete Architectural Test Suite (make test)
-        run: make test
-
-      - name: Verify JavaScript Syntax & Static Assets
-        run: |
-          node -c dashboard/static/js/stream.js
-          node -c dashboard/static/js/chart.js
+      - name: Run all checks
+        run: NANOPB_DIR="$RUNNER_TEMP/nanopb" make test

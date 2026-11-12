@@ -1,5 +1,5 @@
 [Unit]
-Description=Zero-Bloat Bare-Metal IoT Rust Telemetry Ingestor
+Description=IoT Air Quality ingestor (MQTT to InfluxDB)
 After=network.target mosquitto.service influxdb.service
 Wants=mosquitto.service influxdb.service
 

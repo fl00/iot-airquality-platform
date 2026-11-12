@@ -1,6 +1,8 @@
 """
-Zero-Bloat Bare-Metal IoT Air Quality Platform - FastHTML Dashboard
-Architecture: Single-process async FastHTML + HTMX DOM orchestration + Native JS SSE uPlot canvas.
+IoT Air Quality dashboard (FastHTML + HTMX).
+
+Live values come from the ingestor event stream (stream_bridge.py) and are pushed to
+browsers over SSE; history is read from InfluxDB (influx_service.py).
 """
 
 import os
@@ -23,11 +25,13 @@ from fasthtml.common import (
 )
 
 from influx_service import influx_service
-from stream_bridge import stream_bridge, sensor_store, sse_subscribers, create_initial_sensor_state
-from aqi_engine import compute_aqi
+from stream_bridge import (
+    stream_bridge, sensor_store, sse_subscribers, create_initial_sensor_state,
+    status_badge, OFFLINE_AFTER_SECONDS,
+)
 
 # Security Whitelists & Limits (CWE-89, CWE-20, CWE-400 Protection)
-SENSOR_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+SENSOR_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,31}$")
 ALLOWED_TIMEFRAME_RANGES = {"6h", "24h", "7j", "30j", "1an"}
 MAX_SSE_SUBSCRIBERS = 64
 
@@ -111,12 +115,13 @@ app = FastHTML(
         Middleware(GZipMiddleware, minimum_size=500),
     ],
     hdrs=(
-        Title("Bare-Metal IoT Air Quality Platform"),
+        Title("IoT Air Quality"),
         Meta(charset="utf-8"),
         Meta(name="viewport", content="width=device-width, initial-scale=1.0"),
         Link(rel="icon", type="image/x-icon", href=static_url("favicon.ico")),
         Style(CRITICAL_CSS),
         Script(src=static_url("js/htmx.min.js")),
+        Script(f"window.OFFLINE_AFTER_MS = {OFFLINE_AFTER_SECONDS * 1000};"),
         Script(src=static_url("js/stream.js")),
     )
 )
@@ -137,14 +142,8 @@ app.mount("/static", ImmutableStaticFiles(directory=os.path.join(BASE_DIR, "stat
 # ==============================================================================
 # Reusable UI Components
 # ==============================================================================
-def render_header(subtitle: str = "Zero-Bloat Bare-Metal Telemetry"):
-    return Header(
-        Div(
-            H1("💨 IoT Air Quality Hub", cls="header-title"),
-            Span("45MB Bare-Metal Architecture", cls="system-pill"),
-            cls="header-bar"
-        )
-    )
+def render_header():
+    return Header(Div(H1("IoT Air Quality", cls="header-title"), cls="header-bar"))
 
 def render_metric_box(label: str, value: str, elem_id: str = None):
     return Div(
@@ -155,26 +154,26 @@ def render_metric_box(label: str, value: str, elem_id: str = None):
 
 def render_sensor_card(s: Dict[str, Any]):
     sensor_id = s["device_id"]
-    status_cls = "online" if s["status"] == "Online" else "warn"
-    aqi = s.get("aqi") or compute_aqi(int(s.get("co2_ppm", 450)), float(s.get("pm25", 4.0)))
+    status_label, status_cls = status_badge(s)
+    aqi = s["aqi"]
 
     return A(
         Div(
             Div(
-                Div(s.get("name", sensor_id), cls="card-title"),
-                Div(s.get("location", "Facility"), cls="card-loc"),
+                Div(s["name"], cls="card-title"),
+                Div(s["location"], cls="card-loc"),
             ),
             Div(
                 Span(f"{aqi['icon']} {aqi['label']}", id=f"badge-aqi-{sensor_id}", cls=f"badge {aqi['css_class']}"),
                 Span(f"{s['battery_mv']}mV", id=f"badge-bat-{sensor_id}", cls="badge"),
                 Span(f"{s['rssi_dbm']}dBm", id=f"badge-rssi-{sensor_id}", cls="badge"),
-                Span(s["status"], id=f"badge-status-{sensor_id}", cls=f"badge {status_cls}"),
+                Span(status_label, id=f"badge-status-{sensor_id}", cls=f"badge {status_cls}"),
                 cls="badge-group"
             ),
             cls="card-header"
         ),
         Div(
-            render_metric_box("CO2", f"{s['co2_ppm']} ppm", f"val-co2-{sensor_id}"),
+            render_metric_box("CO2", f"{s['co2_ppm']} ppm" if s["co2_ppm"] else "—", f"val-co2-{sensor_id}"),
             render_metric_box("Temp", f"{s['temperature']:.1f} °C", f"val-temp-{sensor_id}"),
             render_metric_box("Humidity", f"{s['humidity']:.1f} %", f"val-hum-{sensor_id}"),
             render_metric_box("PM 2.5", f"{s['pm25']:.1f} µg", f"val-pm25-{sensor_id}"),
@@ -235,7 +234,8 @@ def sensor_detail(sensor_id: str, request: Request):
         return Response("Invalid sensor identifier format", status_code=400)
 
     sensor = sensor_store.get(sensor_id) or create_initial_sensor_state(sensor_id)
-    aqi = sensor.get("aqi") or compute_aqi(int(sensor.get("co2_ppm", 0)), float(sensor.get("pm25", 0.0)))
+    aqi = sensor["aqi"]
+    status_label, status_cls = status_badge(sensor)
 
     # Fetch initial 6h downsampled history in columnar format
     initial_history_raw = influx_service.fetch_sensor_history_columnar(sensor_id, "6h")
@@ -265,14 +265,14 @@ def sensor_detail(sensor_id: str, request: Request):
                 Span(f"{aqi['icon']} AQI {aqi['label']}", id=f"detail-badge-aqi-{sensor_id}", cls=f"badge {aqi['css_class']}"),
                 Span(f"Battery: {sensor['battery_mv']}mV", cls="badge"),
                 Span(f"RSSI: {sensor['rssi_dbm']}dBm", cls="badge"),
-                Span(sensor["status"], cls="badge online"),
+                Span(status_label, id=f"detail-badge-status-{sensor_id}", cls=f"badge {status_cls}"),
                 cls="badge-group"
             ),
             cls="detail-toolbar"
         ),
         Div(
             H2(sensor["name"], style="font-size: 1.4rem; font-weight: 700;"),
-            P(f"Device: {sensor['device_id']} • Location: {sensor['location']} • {aqi['action_hint']}", style="color: var(--text-muted); font-size: 0.85rem;"),
+            P(f"Device: {sensor['device_id']} • {aqi['action_hint']}", style="color: var(--text-muted); font-size: 0.85rem;"),
         ),
         Div(
             Div(*tf_buttons, cls="timeframe-group"),

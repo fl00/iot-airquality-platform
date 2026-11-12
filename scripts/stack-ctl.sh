@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Bare-Metal IoT Platform - Stack & Infrastructure Lifecycle Controller
+# IoT Air Quality Platform - local stack controller (used by the Makefile)
 # ==============================================================================
 set -e
 
@@ -239,7 +239,7 @@ cmd_status() {
     # Rust Ingestor
     if nc -z 127.0.0.1 9100 2>/dev/null; then
         PID=$(fuser 9100/tcp 2>/dev/null | tr -d ' ' || echo "OK")
-        printf "  ${GREEN}%-24s${NC} ${GREEN}%-12s${NC} %-10s %s\n" "Rust Telemetry Ingestor" "RUNNING" ":9100" "PID: ${PID} (Tokio SIMD)"
+        printf "  ${GREEN}%-24s${NC} ${GREEN}%-12s${NC} %-10s %s\n" "Rust Telemetry Ingestor" "RUNNING" ":9100" "PID: ${PID} "
     else
         printf "  ${RED}%-24s${NC} ${RED}%-12s${NC} %-10s %s\n" "Rust Telemetry Ingestor" "STOPPED" ":9100" "Inactive"
     fi

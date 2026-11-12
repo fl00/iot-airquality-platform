@@ -1,8 +1,7 @@
-//! Prometheus Exposition Text Exporter (Standard 0.0.4)
-//! Zero-allocation atomic counters and asynchronous HTTP /metrics endpoint.
+//! Counters, AQI level and the local HTTP endpoint (`/metrics`, `/stream`, `/health`).
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -22,8 +21,8 @@ pub struct IngestorMetrics {
     pub influx_errors_total: AtomicU64,
     pub influx_last_batch_latency_ms: AtomicU64,
 
-    // 3. Circuit Breaker State (0 = Closed/OK, 1 = HalfOpen, 2 = Open/Tripped)
-    pub circuit_breaker_state: AtomicU32,
+    // 3. Samples waiting in memory for the next InfluxDB write (grows while InfluxDB is down)
+    pub influx_buffered_samples: AtomicU64,
 
     // 4. Per-Sensor Last Seen Timestamp
     pub sensor_last_seen: RwLock<HashMap<String, u64>>,
@@ -54,10 +53,9 @@ impl IngestorMetrics {
         self.packets_dropped_total.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn record_batch_result(&self, points_count: u64, latency_ms: u64, is_success: bool, cb_state: u32) {
+    pub fn record_batch_result(&self, points_count: u64, latency_ms: u64, is_success: bool) {
         self.influx_batches_total.fetch_add(1, Ordering::Relaxed);
         self.influx_last_batch_latency_ms.store(latency_ms, Ordering::Relaxed);
-        self.circuit_breaker_state.store(cb_state, Ordering::Relaxed);
         if is_success {
             self.influx_points_written_total.fetch_add(points_count, Ordering::Relaxed);
         } else {
@@ -103,9 +101,9 @@ impl IngestorMetrics {
         out.push_str("# TYPE iot_influx_last_batch_latency_ms gauge\n");
         out.push_str(&format!("iot_influx_last_batch_latency_ms {}\n\n", self.influx_last_batch_latency_ms.load(Ordering::Relaxed)));
 
-        out.push_str("# HELP iot_circuit_breaker_state Circuit breaker state (0=Closed/OK, 1=HalfOpen, 2=Open)\n");
-        out.push_str("# TYPE iot_circuit_breaker_state gauge\n");
-        out.push_str(&format!("iot_circuit_breaker_state {}\n\n", self.circuit_breaker_state.load(Ordering::Relaxed)));
+        out.push_str("# HELP iot_influx_buffered_samples Samples held in memory, waiting for the next InfluxDB write\n");
+        out.push_str("# TYPE iot_influx_buffered_samples gauge\n");
+        out.push_str(&format!("iot_influx_buffered_samples {}\n\n", self.influx_buffered_samples.load(Ordering::Relaxed)));
 
         // Sensor Last Seen Liveness Probes
         out.push_str("# HELP iot_sensor_last_seen_seconds Unix epoch of last seen packet per sensor\n");
@@ -123,7 +121,8 @@ impl IngestorMetrics {
 use tokio::sync::broadcast;
 use crate::sink::MetricSample;
 
-/// Computes normalized AQI level (1..5) using worst-case limiting factor
+/// AQI level 1 (excellent) to 5 (bad): the worst of the CO2, PM2.5 and VOC sub-levels.
+/// Single source of truth for the thresholds (documented in docs/AIR_QUALITY_GUIDE*.md).
 pub fn compute_aqi_level(co2_ppm: u32, pm25_ug: f32, tvoc_ppb: f32) -> u8 {
     let sub_co2 = match co2_ppm {
         0..=599 => 1,
@@ -144,7 +143,7 @@ pub fn compute_aqi_level(co2_ppm: u32, pm25_ug: f32, tvoc_ppb: f32) -> u8 {
         5
     };
     // BSEC breath-VOC equivalent scale (BME680), in ppb: boundaries at Bosch static IAQ
-    // 50 / 100 / 150 / 200. Keep in sync with dashboard/aqi_engine.py.
+    // 50 / 100 / 150 / 200.
     let sub_tvoc = if tvoc_ppb < 800.0 {
         1
     } else if tvoc_ppb < 1900.0 {
@@ -171,7 +170,8 @@ pub fn stream_event_json(sample: &MetricSample) -> String {
     serde_json::to_string(&StreamEvent { sample, aqi_level }).unwrap_or_default()
 }
 
-/// Runs an ultra-lightweight asynchronous HTTP 1.1 listener serving `/metrics` and live `/stream` SSE (0 External Crates)
+/// Minimal HTTP/1.1 listener for local consumers: `/metrics` (Prometheus text),
+/// `/stream` (Server-Sent Events, one JSON object per sample) and `/health`.
 pub async fn run_metrics_server(
     metrics: Arc<IngestorMetrics>,
     stream_tx: broadcast::Sender<Arc<String>>,
@@ -201,7 +201,7 @@ pub async fn run_metrics_server(
                             return;
                         }
                         let req_str = String::from_utf8_lossy(&buf[..n]);
-                        if req_str.starts_with("GET /stream") || req_str.starts_with("GET /internal/stream") {
+                        if req_str.starts_with("GET /stream") {
                             // Server-Sent Events (SSE) stream for Dashboard / Downstream consumers
                             let initial_header = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n: connected\n\n";
                             if socket.write_all(initial_header.as_bytes()).await.is_err() {
@@ -250,5 +250,42 @@ pub async fn run_metrics_server(
                 warn!("[Prometheus/IPC] Listener accept error: {}", e);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn aqi_level_is_the_worst_sub_level() {
+        assert_eq!(compute_aqi_level(450, 3.0, 500.0), 1);
+        assert_eq!(compute_aqi_level(599, 4.9, 799.0), 1);
+        assert_eq!(compute_aqi_level(600, 3.0, 500.0), 2); // CO2 boundary
+        assert_eq!(compute_aqi_level(450, 25.0, 500.0), 4); // PM2.5 boundary
+        assert_eq!(compute_aqi_level(450, 3.0, 4800.0), 4); // VOC boundary
+        assert_eq!(compute_aqi_level(1500, 3.0, 500.0), 5);
+    }
+
+    #[test]
+    fn stream_event_has_sample_fields_and_aqi_level() {
+        let sample = MetricSample {
+            device_id: "kitchen".into(),
+            timestamp_ns: 1,
+            co2_ppm: 1200,
+            temperature_celsius: 21.0,
+            humidity_percent: 40.0,
+            pm25_ug_m3: 3.0,
+            pm10_ug_m3: 4.0,
+            tvoc_ppb: 500.0,
+            pressure_hpa: 1013.0,
+            battery_millivolts: 0,
+            rssi_dbm: -60,
+            status: 2,
+        };
+        let v: serde_json::Value = serde_json::from_str(&stream_event_json(&sample)).unwrap();
+        assert_eq!(v["device_id"], "kitchen");
+        assert_eq!(v["status"], 2);
+        assert_eq!(v["aqi_level"], 4);
     }
 }

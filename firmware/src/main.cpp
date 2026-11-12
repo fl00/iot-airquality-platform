@@ -1,11 +1,11 @@
 /**
  * ==============================================================================
- * Zero-Bloat Bare-Metal IoT Air Quality Platform - ESP32 Firmware
+ * IoT Air Quality Platform - ESP32 sensor node firmware
  * Hardware:     ESP32 DevKit (WROOM-32) + Bosch BME680 (I2C) + Sensirion SCD41 (I2C)
  *               + Plantower PMS7003 (UART2)
  * Architecture: Static Allocation, Nanopb Protobuf, LittleFS Store-and-Forward,
  *               Hardware Task Watchdog Timer (TWDT), non-blocking main loop.
- * Wire format:  contracts/proto/air_quality.proto, one FullSample keyframe per
+ * Wire format:  contracts/proto/air_quality.proto, one AirQualityPacket per
  *               SAMPLING_INTERVAL_MS on sensors/<DEVICE_ID>/airquality.
  * ==============================================================================
  */
@@ -442,7 +442,8 @@ static void sample_and_transmit() {
 
     s_sequence_counter++;
     int32_t rssi = (WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : 0;
-    size_t len = encode_keyframe(&s_packet, DEVICE_ID, s_sequence_counter, unix_time_or_zero(), rssi,
+    uint64_t unix_ts = unix_time_or_zero();
+    size_t len = encode_packet(&s_packet, DEVICE_ID, s_sequence_counter, unix_ts, rssi,
                                  0 /* USB powered: no battery */, snap, s_tx_buffer, sizeof(s_tx_buffer));
     if (len == 0) {
         Serial.println(F("[Proto] ERROR: Protobuf serialization failed!"));
@@ -451,10 +452,12 @@ static void sample_and_transmit() {
 
     bool sent = s_mqtt_client.connected() &&
                 s_mqtt_client.publish(MQTT_TOPIC_TELEMETRY, s_tx_buffer, len, false);
-    if (!sent) persist_packet_to_flash(s_tx_buffer, len);
+    // Without a synchronised clock a stored packet cannot be dated on replay
+    // (the ingestor would stamp the whole backlog with the replay time): drop it.
+    if (!sent && unix_ts != 0) persist_packet_to_flash(s_tx_buffer, len);
 
     Serial.printf("[TX] #%u %s %uB st=%d | T=%.2fC RH=%.1f%% P=%.1fhPa CO2=%.0fppm bVOC=%.3fppm sIAQ=%.0f PM2.5=%.1f PM10=%.1f\n",
-                  (unsigned int)s_sequence_counter, sent ? "mqtt" : "flash", (unsigned int)len,
+                  (unsigned int)s_sequence_counter, sent ? "mqtt" : (unix_ts != 0 ? "flash" : "lost"), (unsigned int)len,
                   (int)s_packet.status, snap.temperature_c, snap.humidity_pct, snap.pressure_hpa,
                   snap.scd_enabled ? snap.co2_ppm : snap.eco2_ppm, snap.bvoc_ppm, snap.static_iaq, snap.pm25_ug_m3, snap.pm10_ug_m3);
 }

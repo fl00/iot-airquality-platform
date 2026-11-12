@@ -29,7 +29,7 @@
 #define PMS_STALE_MS         10000UL  // No valid frame for 10 s => sensor considered lost
 
 // ---- Telemetry --------------------------------------------------------------
-#define SAMPLING_INTERVAL_MS 5000UL   // Platform cadence: one FullSample keyframe every 5 s
+#define SAMPLING_INTERVAL_MS 5000UL   // Platform cadence: one packet every 5 s
 #define BME_STALE_MS         15000UL  // BSEC LP mode outputs every 3 s
 #define BSEC_STATE_SAVE_MS   (6UL * 60UL * 60UL * 1000UL)  // Persist BSEC calibration every 6 h
 #define NTP_SERVER_1         "pool.ntp.org"

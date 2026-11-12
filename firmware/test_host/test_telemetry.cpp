@@ -1,4 +1,4 @@
-// Host-side regression test: PMS7003 parser + Nanopb keyframe encoding.
+// Host-side regression test: PMS7003 parser + Nanopb packet encoding.
 // Build & run: see run.sh (needs a nanopb checkout and python3 protobuf).
 #include <stdio.h>
 #include <assert.h>
@@ -67,7 +67,7 @@ int main() {
 
     static iot_airquality_AirQualityPacket pkt;
     uint8_t buf[256];
-    size_t n = encode_keyframe(&pkt, "sensor-esp32-01", 42, 1794000000ULL, -61, 0, s, buf, sizeof(buf));
+    size_t n = encode_packet(&pkt, "sensor-esp32-01", 42, 1794000000ULL, -61, 0, s, buf, sizeof(buf));
     assert(n > 0 && n <= 128);
     for (size_t i = 0; i < n; i++) printf("%02x", buf[i]);
     printf("\n");

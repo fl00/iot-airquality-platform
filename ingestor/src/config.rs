@@ -16,8 +16,6 @@ pub struct AppConfig {
     pub influx_token: String,
     pub batch_size: usize,
     pub flush_interval_secs: u64,
-    pub circuit_breaker_threshold: u32,
-    pub circuit_breaker_cooldown_secs: u64,
     pub metrics_port: u16,
     pub metrics_enabled: bool,
 }
@@ -51,14 +49,6 @@ impl AppConfig {
                 .and_then(|b| b.parse().ok())
                 .unwrap_or(12),
             flush_interval_secs: env::var("INGESTOR_FLUSH_INTERVAL_SECS")
-                .ok()
-                .and_then(|t| t.parse().ok())
-                .unwrap_or(30),
-            circuit_breaker_threshold: env::var("CB_FAILURE_THRESHOLD")
-                .ok()
-                .and_then(|t| t.parse().ok())
-                .unwrap_or(3),
-            circuit_breaker_cooldown_secs: env::var("CB_COOLDOWN_SECS")
                 .ok()
                 .and_then(|t| t.parse().ok())
                 .unwrap_or(30),

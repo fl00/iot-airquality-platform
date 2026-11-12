@@ -1,6 +1,5 @@
 # Rust build output
 /target/
-Cargo.lock
 
 # IDE and OS
 .DS_Store

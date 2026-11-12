@@ -8,8 +8,4 @@
 
 PB_BIND(iot_airquality_FullSample, iot_airquality_FullSample, AUTO)
 
-PB_BIND(iot_airquality_DeltaSample, iot_airquality_DeltaSample, AUTO)
-
-PB_BIND(iot_airquality_DeltaBatch, iot_airquality_DeltaBatch, AUTO)
-
 PB_BIND(iot_airquality_AirQualityPacket, iot_airquality_AirQualityPacket, AUTO)

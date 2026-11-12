@@ -4,6 +4,25 @@
  */
 (function () {
   let eventSource = null;
+  const lastSeenMs = new Map(); // device id -> time of its last event
+
+  function setStatus(sensorId, label, cls) {
+    for (const prefix of ["badge-status-", "detail-badge-status-"]) {
+      const el = document.getElementById(prefix + sensorId);
+      if (el) {
+        el.textContent = label;
+        el.className = `badge ${cls}`;
+      }
+    }
+  }
+
+  // A sensor that stops publishing must not stay "Online" on an open page.
+  setInterval(function () {
+    const now = Date.now();
+    lastSeenMs.forEach(function (seen, sensorId) {
+      if (now - seen > window.OFFLINE_AFTER_MS) setStatus(sensorId, "Offline", "warn");
+    });
+  }, 5000);
   function startSseStream() {
     if (eventSource) return;
     eventSource = new EventSource("/api/v1/stream");
@@ -20,7 +39,8 @@
         const pm25 = payload.pm25;
         const battery = payload.battery_mv;
         const rssi = payload.rssi_dbm;
-        const aqiLevel = payload.aqi_level;
+        lastSeenMs.set(sensorId, Date.now());
+        setStatus(sensorId, payload.status_label, payload.status_class);
 
         // Auto-transition from empty state to live grid when first telemetry packet arrives
         const emptyState = document.querySelector(".empty-state-card");
@@ -40,7 +60,7 @@
 
         // 2. Live update sensor card numbers on home grid or detail badges
         const co2El = document.getElementById(`val-co2-${sensorId}`);
-        if (co2El) co2El.textContent = `${co2} ppm`;
+        if (co2El) co2El.textContent = co2 ? `${co2} ppm` : "—"; // 0 = CO2 sensor missing
         const tempEl = document.getElementById(`val-temp-${sensorId}`);
         if (tempEl) tempEl.textContent = `${temp.toFixed(1)} °C`;
         const humEl = document.getElementById(`val-hum-${sensorId}`);
@@ -52,26 +72,17 @@
         const rssiEl = document.getElementById(`badge-rssi-${sensorId}`);
         if (rssiEl && rssi) rssiEl.textContent = `${rssi}dBm`;
 
-        // 3. Update AQI Badges dynamically
-        const AQI_MAP = {
-          1: { label: "🌿 Excellent", cls: "aqi-excellent" },
-          2: { label: "🌱 Bon", cls: "aqi-good" },
-          3: { label: "🟡 Moyen", cls: "aqi-moderate" },
-          4: { label: "⚠️ Dégradé", cls: "aqi-poor" },
-          5: { label: "🚨 Mauvais", cls: "aqi-bad" }
-        };
-        if (typeof aqiLevel === "number" && aqiLevel >= 1 && aqiLevel <= 5) {
-          const meta = AQI_MAP[aqiLevel];
-          const aqiEl = document.getElementById(`badge-aqi-${sensorId}`);
-          if (aqiEl) {
-            aqiEl.textContent = meta.label;
-            aqiEl.className = `badge ${meta.cls}`;
-          }
-          const detailAqiEl = document.getElementById(`detail-badge-aqi-${sensorId}`);
-          if (detailAqiEl) {
-            detailAqiEl.textContent = `AQI: ${meta.label}`;
-            detailAqiEl.className = `badge ${meta.cls}`;
-          }
+        // 3. AQI badges (level, label and style are computed server-side)
+        const aqi = payload.aqi;
+        const aqiEl = document.getElementById(`badge-aqi-${sensorId}`);
+        if (aqiEl) {
+          aqiEl.textContent = `${aqi.icon} ${aqi.label}`;
+          aqiEl.className = `badge ${aqi.css_class}`;
+        }
+        const detailAqiEl = document.getElementById(`detail-badge-aqi-${sensorId}`);
+        if (detailAqiEl) {
+          detailAqiEl.textContent = `${aqi.icon} AQI ${aqi.label}`;
+          detailAqiEl.className = `badge ${aqi.css_class}`;
         }
       } catch (err) {
         console.error("SSE parse error", err);

@@ -11,42 +11,52 @@ import threading
 from typing import Dict, Any, List, Optional, Tuple, Set
 import orjson
 
-from aqi_engine import compute_aqi
+from aqi_engine import aqi_meta
 
 INGESTOR_HOST = os.getenv("INGESTOR_HOST", "127.0.0.1")
 INGESTOR_PORT = int(os.getenv("INGESTOR_PORT", os.getenv("METRICS_PORT", "9100")))
 
-# ==============================================================================
-# Declarative Metadata Directory for Registered Hardware Sensors
-# ==============================================================================
+# Optional display names: device_id -> (name, location). Unlisted devices show their id.
 SENSOR_METADATA: Dict[str, Tuple[str, str]] = {
-    "sensor-esp32-01": ("ESP32 Lab Alpha (NDIR + SPS30)", "Hardware Lab - Bay 4"),
-    "sensor-esp32-02": ("ESP32 Cleanroom Beta", "Cleanroom ISO Class 6"),
-    "sensor-esp32-03": ("ESP32 Workshop Gamma", "Rapid Prototyping Workshop"),
+    # "kitchen": ("Kitchen", "Ground floor"),
 }
 
-# ==============================================================================
-# Initial Sensor State Factory Helper (Zero Fake Telemetry)
-# ==============================================================================
-def create_initial_sensor_state(
-    device_id: str,
-    name: str = None,
-    location: str = "Facility"
-) -> Dict[str, Any]:
-    meta_name, meta_loc = SENSOR_METADATA.get(device_id, (name or f"ESP32 Node {device_id}", location))
+# A node publishes every 5 s: it is considered offline after this silence.
+OFFLINE_AFTER_SECONDS = 30
+
+# SensorStatus of the wire contract -> (label, CSS class)
+DEVICE_STATUS = {
+    0: ("Online", "online"),
+    1: ("Warming up", "warn"),
+    2: ("Degraded", "warn"),
+    3: ("Fault", "warn"),
+}
+
+
+def status_badge(sensor: Dict[str, Any]) -> Tuple[str, str]:
+    """(label, CSS class) of a sensor right now, from its last event."""
+    if not sensor["last_seen"]:
+        return "Waiting for telemetry", "warn"
+    if time.time() - sensor["last_seen"] > OFFLINE_AFTER_SECONDS:
+        return "Offline", "warn"
+    return DEVICE_STATUS.get(sensor["device_status"], ("Unknown", "warn"))
+
+
+def create_initial_sensor_state(device_id: str) -> Dict[str, Any]:
+    """State of a sensor that has not sent anything yet."""
+    name, location = SENSOR_METADATA.get(device_id, (device_id, ""))
     return {
         "device_id": device_id,
-        "name": meta_name,
-        "location": meta_loc,
-        "status": "Waiting for Telemetry",
+        "name": name,
+        "location": location,
+        "device_status": 0,
         "battery_mv": 0,
         "rssi_dbm": 0,
         "co2_ppm": 0,
         "temperature": 0.0,
         "humidity": 0.0,
         "pm25": 0.0,
-        "aqi": compute_aqi(0, 0.0),
-        "aqi_level": 1,
+        "aqi": aqi_meta(1),
         "timestamp": 0,
         "last_seen": 0,
     }
@@ -80,38 +90,12 @@ class SensorStateStore:
         with self._lock:
             return len(self._sensors)
 
-    def get_metadata(self, device_id: str) -> Tuple[str, str]:
-        """Returns (name, location) with safe default fallbacks."""
-        if device_id in SENSOR_METADATA:
-            return SENSOR_METADATA[device_id]
-        with self._lock:
-            s = self._sensors.get(device_id)
-            if s:
-                return s.get("name", f"ESP32 Node {device_id}"), s.get("location", "Facility")
-            return f"ESP32 Node {device_id}", "Facility"
-
     def update(self, device_id: str, telemetry: Dict[str, Any]) -> None:
         """Atomically updates sensor telemetry in the registry."""
         with self._lock:
             self._sensors[device_id] = telemetry
 
-    # Dict-like compatibility interface
-    def __getitem__(self, device_id: str) -> Dict[str, Any]:
-        val = self.get(device_id)
-        if val is None:
-            raise KeyError(device_id)
-        return val
-
-    def __setitem__(self, device_id: str, telemetry: Dict[str, Any]) -> None:
-        self.update(device_id, telemetry)
-
-    def __len__(self) -> int:
-        return self.count()
-
-    def values(self) -> List[Dict[str, Any]]:
-        return self.get_all()
-
-# Thread-Safe In-Memory Sensor State Registry (Pure Dynamic Auto-Discovery)
+# Latest state of every sensor seen since start-up
 sensor_store = SensorStateStore({})
 
 # Active SSE subscriber queues
@@ -183,32 +167,26 @@ class StreamBridge:
                                 sample = orjson.loads(raw_data)
                                 device_id = sample["device_id"]
 
-                                co2 = int(sample.get("co2_ppm", 0))
-                                pm25 = round(float(sample.get("pm25_ug_m3", 0.0)), 2)
-                                tvoc = float(sample.get("tvoc_ppb", 0.0))
-                                aqi = compute_aqi(co2, pm25, tvoc)
-                                name, location = sensor_store.get_metadata(device_id)
-
-                                telemetry = {
-                                    "device_id": device_id,
-                                    "name": name,
-                                    "location": location,
-                                    "status": "Online",
+                                state = create_initial_sensor_state(device_id)
+                                state.update({
+                                    "device_status": int(sample.get("status", 0)),
                                     "battery_mv": int(sample.get("battery_millivolts", 0)),
                                     "rssi_dbm": int(sample.get("rssi_dbm", 0)),
-                                    "co2_ppm": co2,
+                                    "co2_ppm": int(sample.get("co2_ppm", 0)),
                                     "temperature": round(float(sample.get("temperature_celsius", 0.0)), 2),
                                     "humidity": round(float(sample.get("humidity_percent", 0.0)), 2),
-                                    "pm25": pm25,
-                                    "aqi": aqi,
-                                    "aqi_level": int(sample.get("aqi_level", aqi["level"])),
+                                    "pm25": round(float(sample.get("pm25_ug_m3", 0.0)), 2),
+                                    "aqi": aqi_meta(int(sample["aqi_level"])),
                                     "timestamp": int(sample.get("timestamp_ns", 0)) // 1_000_000_000,
                                     "last_seen": int(time.time()),
-                                }
-                                sensor_store.update(device_id, telemetry)
+                                })
+                                sensor_store.update(device_id, state)
 
                                 # Serialized once, shared by every browser subscriber
-                                event_json = orjson.dumps(telemetry).decode("utf-8")
+                                label, css = status_badge(state)
+                                event_json = orjson.dumps(
+                                    {**state, "status_label": label, "status_class": css}
+                                ).decode("utf-8")
                                 for q in list(sse_subscribers):
                                     _safe_push_queue(q, event_json)
 

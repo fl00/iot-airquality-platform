@@ -1,5 +1,5 @@
 # ==============================================================================
-# Bare-Metal IoT Platform - Unified Automation Makefile
+# IoT Air Quality Platform - developer commands (run `make help`)
 # ==============================================================================
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
@@ -16,33 +16,33 @@ RED     := \033[0;31m
 NC      := \033[0m
 
 ## -----------------------------------------------------------------------------
-## 📦 BUILD & COMPILATION
+## BUILD & COMPILATION
 ## -----------------------------------------------------------------------------
 
 .PHONY: contracts
-contracts: ## Compile Protobuf contracts (Nanopb C++, Rust Prost, Python mock)
+contracts: ## Regenerate Protobuf bindings after a contract change (see contracts/README.md)
 	@echo -e "${CYAN}==> Compiling Protobuf Contracts...${NC}"
 	@./contracts/compile.sh
 
 .PHONY: build-ingestor
-build-ingestor: ## Build optimized release binary of Rust Ingestion Engine (<3.5MB)
+build-ingestor: ## Build optimized release binary of Rust Ingestion Engine 
 	@echo -e "${CYAN}==> Compiling Rust Telemetry Ingestor (Release LTO)...${NC}"
 	@cd ingestor && cargo build --release
 
 .PHONY: build
-build: contracts build-ingestor ## Build all platform artifacts (Contracts + Rust Ingestor)
+build: build-ingestor ## Build the platform (release binary of the ingestor)
 	@echo -e "${GREEN}✔ All platform components built successfully.${NC}"
 
 ## -----------------------------------------------------------------------------
-## 🧪 TESTING & VERIFICATION
+## TESTING & VERIFICATION
 ## -----------------------------------------------------------------------------
 
 .PHONY: test
-test: ## Run the complete end-to-end platform validation suite
+test: ## Run all automated checks (unit tests, end-to-end test, firmware host test)
 	@./scripts/test-stack.sh
 
 ## -----------------------------------------------------------------------------
-## 🚀 STACK ORCHESTRATION & LIFECYCLE
+## STACK ORCHESTRATION & LIFECYCLE
 ## -----------------------------------------------------------------------------
 
 .PHONY: start up
@@ -73,7 +73,7 @@ logs: ## Stream live logs from all background services (Ctrl+C to exit)
 	@tail -f logs/ingestor.log logs/dashboard.log logs/mock.log
 
 ## -----------------------------------------------------------------------------
-## 🗄️ INFRASTRUCTURE SERVICES (Mosquitto & InfluxDB)
+## INFRASTRUCTURE SERVICES (Mosquitto & InfluxDB)
 ## -----------------------------------------------------------------------------
 
 .PHONY: start-infra
@@ -109,7 +109,7 @@ stop-all: ## Stop EVERYTHING (Mock + Dashboard + Rust Ingestor + Infra)
 	@./scripts/stack-ctl.sh stop-all
 
 ## -----------------------------------------------------------------------------
-## 🚀 FOREGROUND DEV (SINGLE SERVICES)
+## FOREGROUND DEV (SINGLE SERVICES)
 ## -----------------------------------------------------------------------------
 
 .PHONY: run-ingestor
@@ -128,7 +128,7 @@ run-mock: ## Run ESP32 Hardware Mock Telemetry Publisher in foreground
 	@python3 ./firmware/tools/mock_publisher.py
 
 ## -----------------------------------------------------------------------------
-## 🧹 CLEANUP
+## CLEANUP
 ## -----------------------------------------------------------------------------
 
 .PHONY: clean
@@ -141,13 +141,13 @@ clean: stop ## Clean build artifacts, temporary caches, and logs
 	@echo -e "${GREEN}✔ Clean completed.${NC}"
 
 ## -----------------------------------------------------------------------------
-## 📖 HELP
+## HELP
 ## -----------------------------------------------------------------------------
 
 .PHONY: help
 help: ## Display this interactive help menu
 	@echo -e "\n${CYAN}==============================================================================${NC}"
-	@echo -e "${CYAN}   Bare-Metal IoT Air Quality Platform - Developer Toolkit                     ${NC}"
+	@echo -e "${CYAN}   IoT Air Quality Platform - developer commands${NC}"
 	@echo -e "${CYAN}==============================================================================${NC}\n"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 	@echo ""

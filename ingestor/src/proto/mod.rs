@@ -1,4 +1,5 @@
-//! Generated Prost Protocol Buffers definition for `iot.airquality`
+//! Prost bindings for `contracts/proto/air_quality.proto` (package `iot.airquality`).
+//! Maintained by hand: keep in sync with the .proto file.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -28,26 +29,6 @@ pub struct FullSample {
 }
 
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DeltaSample {
-    #[prost(uint32, tag = "1")]
-    pub time_offset_sec: u32,
-    #[prost(sint32, tag = "2")]
-    pub co2_delta_ppm: i32,
-    #[prost(sint32, tag = "3")]
-    pub temp_delta_centi_deg: i32,
-    #[prost(sint32, tag = "4")]
-    pub hum_delta_centi_pct: i32,
-    #[prost(sint32, tag = "5")]
-    pub pm25_delta_centi_ug: i32,
-}
-
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DeltaBatch {
-    #[prost(message, repeated, tag = "1")]
-    pub samples: ::prost::alloc::vec::Vec<DeltaSample>,
-}
-
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AirQualityPacket {
     #[prost(string, tag = "1")]
     pub device_id: ::prost::alloc::string::String,
@@ -61,16 +42,6 @@ pub struct AirQualityPacket {
     pub rssi_dbm: i32,
     #[prost(enumeration = "SensorStatus", tag = "6")]
     pub status: i32,
-    #[prost(oneof = "air_quality_packet::Payload", tags = "7, 8")]
-    pub payload: ::core::option::Option<air_quality_packet::Payload>,
-}
-
-pub mod air_quality_packet {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Payload {
-        #[prost(message, tag = "7")]
-        FullSample(super::FullSample),
-        #[prost(message, tag = "8")]
-        DeltaBatch(super::DeltaBatch),
-    }
+    #[prost(message, optional, tag = "7")]
+    pub full_sample: ::core::option::Option<FullSample>,
 }
