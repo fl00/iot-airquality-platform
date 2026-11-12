@@ -63,8 +63,25 @@ perçages métallisés et non métallisés.
 La carte est décrite par `pcb/carrier.py`, qui la route, la contrôle puis exporte les Gerber. Le contrôle
 intégré vérifie les isolements (0,30 mm minimum exigé, 0,70 mm obtenu), la continuité de chaque net, les
 distances aux bords, à la fente et aux trous de fixation, et l'absence de cuivre supérieur sous le PMS7003.
-**Les Gerber n'ont pas été ouverts dans un visualiseur tiers ni dans KiCad** : passez-les dans l'aperçu du
-fabricant (ou `gerbv`) et comparez avec `pcb/preview.png` avant de commander. Il n'y a pas de projet KiCad.
+Les Gerber ont été relus par un outil tiers (gerbonara) : couches reconnues, contour de 94 × 64 mm, 75 perçages
+de 1,0 mm, 2 de 0,8 mm, 8 vias de 0,4 mm et 4 trous de fixation de 3,2 mm, rendu conforme à `pcb/preview.png`.
+Comparez tout de même l'aperçu du fabricant avec cette image avant de commander. Il n'y a pas de projet KiCad.
+
+### À mesurer sur vos pièces avant de commander la carte
+
+Le prototype câblé par fils est le moment de le faire. Chaque point peut imposer de modifier `carrier.py`.
+
+| Point | Exigence de la carte | Si ce n'est pas le cas |
+| :-- | :-- | :-- |
+| Longueur des modules BME680 et SCD41 | Le module ne dépasse pas **17 mm** au-delà de sa rangée de broches : au-delà, il heurte la cloison du couvercle (et le PMS7003 à partir de 20 mm). | Écarter la fente et le PMS7003 (`SLOT`, `PMS_KEEPOUT`), ou tourner le connecteur. |
+| Ordre des broches du SCD41 | Sérigraphie du module dans l'ordre VDD, GND, SCL, SDA. | Modifier `SCD_PINS`. Un ordre différent inverse l'alimentation et détruit le capteur. |
+| Ordre des broches de l'ESP32 | 3V3 en broche 1 (côté antenne), GND en broche 14, 5V en broche 19 (côté USB), comme la sérigraphie de la carte. | Ne pas utiliser cette carte ESP32. |
+| Adaptateur du PMS7003 | L'adaptateur et sa nappe tiennent dans les 15 mm entre le capteur et le bord USB, sans toucher J4 ni C1. | Déplacer J4 et C1. |
+| Face d'air du PMS7003 | Aspiration et refoulement sur la petite face opposée au connecteur. | Revoir l'orientation du capteur et la grille du boîtier. |
+
+Remarque de fabrication : les deux pastilles « − » de C1 (pas de 3,5 et de 5 mm) se recouvrent, avec 0,5 mm de
+matière entre leurs perçages. C'est la limite admise par les fabricants courants ; s'ils la refusent, supprimer
+l'une des deux dans `carrier.py`.
 
 ## 3. Firmware
 
@@ -143,11 +160,12 @@ et l'aperçu (numpy seul requis, matplotlib pour l'aperçu). Points à vérifier
 
 | Paramètre | Défaut | À vérifier |
 | :-- | :-- | :-- |
-| `SOCKET_H` | 8,5 mm | Hauteur de vos barrettes femelles : elle fixe la hauteur de l'ouverture USB. |
+| `SOCKET_H`, `HEADER_SPACER` | 8,5 et 2,5 mm | Hauteur de vos barrettes femelles, et du corps plastique des barrettes mâles de l'ESP32 : elles fixent la hauteur de l'ouverture USB (16 à 25 mm du fond). |
 | Grille PMS7003 | face de 37 × 12 mm | Le modèle suppose l'aspiration et le refoulement sur la petite face opposée au connecteur. |
 | Butées du PMS7003 | coins de la face connecteur | Elles ne doivent pas gêner l'adaptateur ; sinon réduire leur largeur dans `lid_ops()`. |
 | `INNER_H` | 28 mm | Hauteur libre pour les fils Dupont sur J4 ; réductible si les fils sont soudés. |
-| `FIT` | 0,25 mm | Jeu du couvercle, à ajuster selon l'imprimante. |
+| `FIT` | 0,25 mm | Jeu du couvercle, à ajuster selon l'imprimante. Le couvercle tient par simple emboîtement : le maintenir par un élastique ou un adhésif si le boîtier est accroché. |
+| `PEG` | 2,0 mm | Côté des ergots carrés qui entrent dans les trous de 3,2 mm. |
 
 ## 5. Mise en service
 

@@ -33,12 +33,13 @@ PCB_GAP = 1.0          # clearance between board edge and walls
 STANDOFF_H = 3.0       # room for the solder joints under the board
 INNER_H = 28.0         # cavity height (Dupont housings on J4 are the tallest item)
 MOUNT_HOLES = [(3.5, 3.5), (3.5, 60.5), (76.5, 60.5), (77.4, 3.5)]   # PCB coordinates
-PEG = 2.2              # square peg entering the 3.2 mm mounting holes
+PEG = 2.0              # square peg entering the 3.2 mm mounting holes (diagonal 2.8 mm: room for print tolerance)
 SLOT_X = (21.0, 22.6)  # PCB thermal slot, sealed by the lid partition
 PMS_X = (23.0, 60.6)   # PMS7003 footprint on the PCB (37 mm + clearance)
 PMS_L, PMS_H = 48.4, 12.0
 ESP_CENTRE_X = 64.7 + 12.7
 SOCKET_H = 8.5         # 2.54 mm female header height
+HEADER_SPACER = 2.5    # plastic body of the male pin headers, between socket and plugged board
 USB_W = 14.0
 
 # ----------------------------------------------------------------------------
@@ -96,8 +97,9 @@ def body_ops():
         x += 4.2
     # USB opening (Y = 0 wall); the connector sits on top of the ESP32 board
     xu = PCB_X0 + ESP_CENTRE_X - 0.6        # splits the difference between both row spacings
-    z_usb = Z_PCB_TOP + SOCKET_H + 1.6
-    ops.append((-1, box(xu - USB_W / 2, xu + USB_W / 2, -1, WALL + 0.5, z_usb - 3.2, z_usb + 6.3)))
+    z_usb = Z_PCB_TOP + SOCKET_H + HEADER_SPACER + 1.6   # top face of the ESP32 board
+    # The micro-USB socket is centred about 1.3 mm above that face; a plug overmould is up to 8 mm high.
+    ops.append((-1, box(xu - USB_W / 2, xu + USB_W / 2, -1, WALL + 0.5, z_usb - 3.2, z_usb + 6.0)))
     return ops
 
 
