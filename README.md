@@ -1,53 +1,59 @@
-# Zero-Bloat Bare-Metal IoT Air Quality Platform
+# IoT Air Quality Platform
 
-[![CI Architecture Verification](https://github.com/fl0rent/iot-airquality-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/fl0rent/iot-airquality-platform/actions/workflows/ci.yml)
-[![Architecture](https://img.shields.io/badge/Architecture-Bare--Metal%20Zero--Bloat-00e5a0?style=for-the-badge)](docs/adr/0001-baremetal-protobuf-fasthtml-influx.md)
-[![Rust Ingestor](https://img.shields.io/badge/Rust-Tokio%202.0-orange?style=for-the-badge&logo=rust)](ingestor/)
-[![FastHTML Dashboard](https://img.shields.io/badge/UI-FastHTML%20%2B%20uvloop-blue?style=for-the-badge&logo=python)](dashboard/)
-[![Protobuf Wire](https://img.shields.io/badge/Wire-Nanopb%20Protobuf%20v3-red?style=for-the-badge)](contracts/)
-[![Total RAM](https://img.shields.io/badge/RAM%20Footprint-%3C%2050MB%20Total-success?style=for-the-badge)](scripts/test-stack.sh)
+[![CI](https://github.com/fl0rent/iot-airquality-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/fl0rent/iot-airquality-platform/actions/workflows/ci.yml)
+[![Rust](https://img.shields.io/badge/ingestor-Rust%20%7C%20Tokio%201.x-informational)](ingestor/)
+[![Python](https://img.shields.io/badge/dashboard-FastHTML%20%7C%20uvloop-informational)](dashboard/)
+[![Protobuf](https://img.shields.io/badge/wire-Protobuf%20v3%20(Nanopb)-informational)](contracts/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](#license)
 
-A high-performance, ultra-low-footprint IoT Air Quality monitoring platform designed for bare-metal edge nodes, single-board computers (Raspberry Pi, industrial gateways), and battery-conscious microcontrollers.
+An air quality monitoring platform built for constrained hardware: ESP32 sensor nodes, single-board computers (Raspberry Pi) and industrial gateways. The complete server-side stack runs in roughly 50 MB of RAM.
 
----
+## Contents
 
-## 🏛️ System Architecture
+- [Architecture](#architecture)
+- [Repository Layout](#repository-layout)
+- [Getting Started](#getting-started)
+- [Resource Footprint](#resource-footprint)
+- [Live Streaming Protocol](#live-streaming-protocol)
+- [Security](#security)
+- [Architecture Decision Records](#architecture-decision-records)
+- [License](#license)
+
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                     ESP32 MICROCONTROLLER FIRMWARE                      │
-│ • Nanopb C++ Static Allocation • LittleFS Flash Store-and-Forward       │
-│ • Keyframes (65B) & DeltaBatches (8B/sample) • Hardware TWDT Watchdog   │
+│                          ESP32 FIRMWARE (Nanopb)                        │
+│  Static allocation · LittleFS store-and-forward · Hardware watchdog     │
+│  Keyframes (65 B) and delta batches (8 B per sample)                    │
 └────────────────────────────────────┬────────────────────────────────────┘
-                                     │ MQTT Binary (Protobuf v3)
+                                     │ MQTT, Protobuf v3 payloads
                                      ▼
                    ┌───────────────────────────────────┐
-                   │       MOSQUITTO MQTT BROKER       │
+                   │          Mosquitto broker         │
                    └─────────────────┬─────────────────┘
-                                     │ Sole Subscriber
+                                     │ single subscriber
                                      ▼
                    ┌───────────────────────────────────┐
-                   │   RUST INGESTION HUB (CENTRAL)    │
-                   │ • Decodes Protobuf v3 (Prost)     │
-                   │ • Micro-Batching & Circuit Breaker│
-                   │ • Prometheus Metrics (:9100)      │
-                   │ • Local IPC Stream (:9100/stream) │
+                   │         Rust ingestion hub        │
+                   │  Protobuf decoding (Prost)        │
+                   │  Micro-batching, circuit breaker  │
+                   │  Prometheus metrics  :9100        │
+                   │  Local IPC stream    :9100/stream │
                    └─────────┬───────────────┬─────────┘
                              │               │
           ┌──────────────────┘               └─────────────────────────┐
-          │ Line Protocol HTTP                                         │ IPC Local (:9100/stream)
+          │ Line Protocol over HTTP                                    │ Local IPC (SSE)
           ▼                                                            ▼
 ┌─────────────────────┐                                  ┌───────────────────────────┐
-│   INFLUXDB v2/v3    │◄──────── Direct SQL ─────────────┤  FASTHTML DASHBOARD (UI)  │
-│ Time-Series Storage │         Aggregations             │ • Zero MQTT / Zero Proto  │
-└─────────────────────┘                                  │ • In-Memory Thread-Safe   │
-                                                         │ • Dynamic Content-Hashing │
+│    InfluxDB v2/v3   │◄──────── SQL queries ────────────┤    FastHTML dashboard     │
+│  Time-series store  │        (history, aggregates)     │  No MQTT / Protobuf deps  │
+└─────────────────────┘                                  │  In-memory sensor state   │
                                                          └─────────────┬─────────────┘
-                                                                       │ SSE Binary (16 Bytes)
+                                                                       │ SSE, 16-byte frames
                                                                        ▼
                                                          ┌───────────────────────────┐
-                                                         │   BROWSER (HTMX + uPlot)  │
-                                                         │ Zero-GC Canvas Rendering  │
+                                                         │  Browser (HTMX + uPlot)   │
                                                          └───────────────────────────┘
 ```
 
@@ -59,175 +65,169 @@ sequenceDiagram
     participant Ingest as Rust Ingestor (:9100)
     participant Influx as InfluxDB (:8086)
     participant Dashboard as FastHTML (:8000)
-    participant Browser as Browser Canvas (uPlot)
+    participant Browser as Browser (uPlot)
 
-    ESP->>MQTT: Publish Protobuf Keyframe (65B) or Delta (8B)
-    MQTT->>Ingest: Ingest over TCP Event Loop
-    par Micro-Batch Storage
-        Ingest->>Ingest: Aggregate into 12-sample buffer
-        Ingest->>Influx: Batch HTTP Line Protocol Write (HTTP 204)
-    and Live Zero-Copy IPC
-        Ingest->>Dashboard: 16-Byte Base64 SSE Frame (TCP_NODELAY)
-        Dashboard->>Browser: Zero-Allocation Passthrough SSE
-        Browser->>Browser: Unpack ArrayBuffer(16) -> uPlot Float32/Float64
+    ESP->>MQTT: Publish keyframe (65 B) or delta (8 B)
+    MQTT->>Ingest: Deliver message
+    par Storage
+        Ingest->>Ingest: Buffer up to 12 samples
+        Ingest->>Influx: Batched Line Protocol write (HTTP 204)
+    and Live stream
+        Ingest->>Dashboard: 16-byte frame, Base64 over SSE
+        Dashboard->>Browser: Forward SSE frame unchanged
+        Browser->>Browser: Decode ArrayBuffer(16) and update chart
     end
-    Note over Browser,Influx: History Queries: FastHTML queries Influx directly via SQL with &epoch=s
+    Note over Browser,Influx: Historical data is queried by the dashboard directly from InfluxDB (SQL, epoch=s)
 ```
 
----
+### Components
 
-## 🗂️ Platform Structure
+| Component | Technology | Responsibility |
+| :--- | :--- | :--- |
+| Firmware | C++, PlatformIO, Nanopb | Sensor acquisition, Protobuf encoding, offline buffering on flash |
+| Broker | Mosquitto | MQTT transport between nodes and the ingestor |
+| Ingestor | Rust, Tokio, Prost | Decoding, batched persistence, metrics, live stream fan-out |
+| Storage | InfluxDB v2/v3 | Time-series storage and historical aggregation |
+| Dashboard | Python, FastHTML, uvloop, uPlot | Real-time and historical visualization |
+
+## Repository Layout
 
 ```
 iot-airquality-platform/
-├── contracts/                         # 📦 Canonical Protobuf v3 Schemas & Compilers
+├── contracts/          Protobuf v3 schemas and code generation
 │   ├── proto/air_quality.proto
 │   └── compile.sh
-│
-├── firmware/                          # ⚡ ESP32 C/C++ Firmware (Nanopb, PlatformIO)
+├── firmware/           ESP32 firmware (PlatformIO, Nanopb)
 │   ├── src/main.cpp
 │   ├── include/
-│   └── tools/mock_publisher.py        # Hardware simulator & Mock generator
-│
-├── ingestor/                          # 🦀 Rust Telemetry Ingestion Hub (Tokio, Prost)
+│   └── tools/mock_publisher.py      Telemetry simulator
+├── ingestor/           Rust ingestion service
 │   ├── src/main.rs
-│   ├── src/metrics.rs                 # Native HTTP 1.1 /metrics & /stream server
-│   ├── src/sink.rs                    # InfluxDB line protocol batch engine
+│   ├── src/metrics.rs               HTTP /metrics and /stream endpoints
+│   ├── src/sink.rs                  InfluxDB batch writer
 │   └── Cargo.toml
-│
-├── dashboard/                         # 🎨 FastHTML Dashboard UI (Python, uPlot, CSS)
-│   ├── main.py                        # Starlette/FastHTML application & SSE broadcaster
-│   ├── stream_bridge.py               # Asynchronous IPC client to Rust Ingestor
-│   ├── influx_service.py              # Vectorized SQL queries with &epoch=s
-│   └── static/                        # CSS, JS Canvas charts, and icons
-│
-├── deploy/                            # 🛡️ Production Ops, Systemd & Sandboxing
-│   ├── systemd/                       # Systemd services with strict memory ceilings
-│   ├── mosquitto/                     # Mosquitto 8MB RAM tuning
-│   ├── influxdb/                      # InfluxDB 32MB cache tuning
-│   └── sysctl.d/                      # Linux TCP kernel tuning
-│
-├── docs/                              # 📚 ADRs and Air Quality Sanitary Guides
-│   ├── adr/                           # Architecture Decision Records (0001 - 0004)
-│   ├── AIR_QUALITY_GUIDE.md           # Guide des Seuils Sanitaires (Français)
-│   └── AIR_QUALITY_GUIDE_EN.md        # Air Quality Health Guide (English)
-│
-├── scripts/                           # 🧪 Verification & End-to-End Test Suite
-│   └── test-stack.sh
-│
-├── Makefile                           # ⚙️ Unified developer toolkit
-└── README.md
+├── dashboard/          FastHTML web application
+│   ├── main.py                      Application and SSE broadcaster
+│   ├── stream_bridge.py             IPC client for the ingestor stream
+│   ├── influx_service.py            Historical queries
+│   └── static/                      CSS, JavaScript, icons
+├── deploy/             Production deployment
+│   ├── systemd/                     Hardened service units
+│   ├── mosquitto/                   Broker configuration
+│   ├── influxdb/                    Database configuration
+│   └── sysctl.d/                    Kernel network tuning
+├── docs/
+│   ├── adr/                         Architecture Decision Records
+│   ├── AIR_QUALITY_GUIDE.md         Health thresholds guide (French)
+│   └── AIR_QUALITY_GUIDE_EN.md      Health thresholds guide (English)
+├── scripts/
+│   └── test-stack.sh                End-to-end verification
+└── Makefile
 ```
 
----
+Each component directory contains its own README with build and configuration details.
 
-## 🚀 Quickstart
+## Getting Started
 
 ### Prerequisites
-- GCC / Clang / Python 3.10+
+
+- Python 3.10+
 - Rust toolchain (`cargo`, `rustc`)
-- Mosquitto MQTT Broker (`port 1883`)
-- InfluxDB v2.x / v3.x (`port 8086`)
+- GCC or Clang
+- Mosquitto MQTT broker on port 1883
+- InfluxDB v2.x or v3.x on port 8086
 
-### Development Commands
+### Build and Run
+
 ```bash
-# 1. Compile Protobuf contracts and Rust Ingestor release binary
-make build
+make build           # Generate Protobuf code and build the ingestor (release)
+make test            # Run the verification suite
 
-# 2. Run the complete architectural validation suite
-make test
-
-# 3. Start the Rust Ingestion Hub (Terminal 1)
-make run-ingestor
-
-# 4. Start the FastHTML Dashboard UI (Terminal 2)
-make run-dashboard
-
-# 5. Emit mock ESP32 telemetry (Terminal 3)
-make run-mock
+make run-ingestor    # Terminal 1: start the ingestion service
+make run-dashboard   # Terminal 2: start the dashboard
+make run-mock        # Terminal 3: publish simulated ESP32 telemetry
 ```
 
-Open your browser at **`http://localhost:8000/`** to view real-time telemetry streaming at 60 FPS.
+The dashboard is available at `http://localhost:8000/`.
 
----
+## Resource Footprint
 
-## 📊 Memory & Performance Footprint
+Resident memory (RSS) measured on the reference deployment, against per-service budgets.
 
-| Subsystem Component | Target RAM Budget | Measured Resident RAM (RSS) | Technology / Strategy |
+| Service | Budget | Measured RSS | Notes |
+| :--- | ---: | ---: | :--- |
+| Mosquitto | < 5 MB | ~3.2 MB | Memory limits in broker configuration |
+| Rust ingestor | < 10 MB | ~5.8 MB | LTO, `panic = "abort"` |
+| InfluxDB | < 25 MB | ~18.0 MB | 32 MB cache ceiling |
+| FastHTML dashboard | < 20 MB | ~14.5 MB | Python 3.12, uvloop, single worker |
+| Caddy reverse proxy | < 10 MB | ~8.0 MB | TLS termination, HTTP/3 |
+| **Total** | **< 60 MB** | **~49.5 MB** | |
+
+## Live Streaming Protocol
+
+Live telemetry is carried from the ingestor to the browser as fixed-size 16-byte frames (struct format `>IHhHHHbB`, big-endian). The dashboard forwards frames without decoding them.
+
+### Frame Layout
+
+| Bytes | Field | Type | Unit |
 | :--- | :--- | :--- | :--- |
-| **Mosquitto MQTT Broker** | `< 5.0 MB` | **~3.2 MB** | C, memory caps |
-| **Rust Telemetry Ingestor** | `< 10.0 MB` | **~5.8 MB** | Tokio, Prost, LTO, panic=abort |
-| **InfluxDB Engine** | `< 25.0 MB` | **~18.0 MB** | 32MB cache ceiling |
-| **FastHTML Dashboard UI** | `< 20.0 MB` | **~14.5 MB** | Python 3.12 + uvloop, single worker |
-| **Caddy Reverse Proxy** | `< 10.0 MB` | **~8.0 MB** | Go, HTTP/3, TLS termination |
-| **TOTAL PLATFORM RAM** | **`< 60.0 MB`** | **`~49.5 MB`** | **Optimal Bare-Metal Footprint** |
+| 0–3 | Timestamp | `uint32` | Unix seconds |
+| 4–5 | CO2 | `uint16` | ppm |
+| 6–7 | Temperature | `int16` | 0.01 °C |
+| 8–9 | Humidity | `uint16` | 0.01 % |
+| 10–11 | PM2.5 | `uint16` | 0.01 µg/m³ |
+| 12–13 | Battery | `uint16` | mV |
+| 14 | RSSI | `int8` | dBm |
+| 15 (bits 4–7) | AQI level | 4-bit | 1–5 |
+| 15 (bits 0–3) | Sensor index | 4-bit | 0–15 |
 
----
+A frame is 16 bytes, encoded as 24 Base64 characters on the wire.
 
-## ⚡ End-to-End 16-Byte Binary Streaming & Debugging Protocol
+### Endpoints
 
-The platform implements an ultra-compact **16-byte binary protocol** (`>IHhHHHbB`) streaming directly from the Rust Ingestor Hub through the Python FastHTML pass-through to the browser's uPlot Canvas engine:
+The ingestor exposes the stream on `/stream` in two formats:
 
-### 1. Binary Frame Memory Layout (Big-Endian / Network Byte Order)
+```bash
+# Binary frames, Base64-encoded (default, used by the dashboard)
+curl -N http://127.0.0.1:9100/stream
+# data: aoXFKwJsCOgTJAKKDyjEIA==
+
+# JSON, for debugging
+curl -N "http://127.0.0.1:9100/stream?format=json"
+# data: {"device_id":"sensor-esp32-01","co2_ppm":620,"temperature_celsius":22.8,...}
 ```
-┌──────────────┬──────────────┬──────────────┬──────────────┬──────────────┬──────────────┬──────────────┬───────────────────────────────┐
-│ Bytes 0 - 3  │ Bytes 4 - 5  │ Bytes 6 - 7  │ Bytes 8 - 9  │ Bytes 10 - 11│ Bytes 12 - 13│   Byte 14    │            Byte 15            │
-├──────────────┼──────────────┼──────────────┼──────────────┼──────────────┼──────────────┼──────────────┼───────────────┬───────────────┤
-│  Timestamp   │     CO2      │ Temperature  │   Humidity   │    PM2.5     │   Battery    │     RSSI     │   AQI Level   │  Sensor Index │
-│ uint32 (sec) │ uint16 (ppm) │ int16 (.01°C)│uint16 (.01%) │uint16(.01µg) │ uint16 (mV)  │  int8 (dBm)  │  High Nibble  │  Low Nibble   │
-│  [0..2^32-1] │  [0..65535]  │[-32768..32767│  [0..65535]  │  [0..65535]  │  [0..65535]  │ [-128..127]  │ 4 bits (1..5) │ 4 bits (0..15)│
-└──────────────┴──────────────┴──────────────┴──────────────┴──────────────┴──────────────┴──────────────┴───────────────┴───────────────┘
-Total Frame Size: Exactly 16 Bytes (128 bits / 24 Base64 characters).
-```
 
-### 2. Dual-Mode IPC Endpoints (`/stream`)
-- **Default Production Mode (Ultra-Low Latency Binary Base64):**
-  ```bash
-  curl -N http://127.0.0.1:9100/stream
-  # Output: data: aoXFKwJsCOgTJAKKDyjEIA==\n\n
-  ```
-- **Human-Readable Debug Mode (Interactive CLI / Developer Inspection):**
-  ```bash
-  curl -N "http://127.0.0.1:9100/stream?format=json"
-  # Output: data: {"device_id":"sensor-esp32-01","co2_ppm":620,"temperature_celsius":22.8,...}\n\n
-  ```
+### Design Notes
 
-### 3. Architecture Constraints & Design Rationale
-- **16-Sensor Node Limit (4-Bit Index):**
-  Byte 15 allocates its lower 4 bits (`bits 0..3`) to index up to **16 distinct physical sensors (0 to 15)** connected to a single bare-metal edge gateway node. If a single gateway manages $>16$ sensors, the frame can be extended to 18 bytes (using a 16-bit sensor index), or grouped by logical gateway zones.
-- **Why Auxiliary Metrics (TVOC, PM10, Pressure) are not in the 16B Live Stream:**
-  1. **L1 CPU Cache Line & SIMD Register Fit:** 16 bytes (128 bits) fits exactly into two 64-bit CPU registers, allowing single-instruction atomic copies and zero-allocation DataView unpacking.
-  2. **60 FPS Canvas Real-Estate:** Live real-time animations focus on primary human-health metrics ($CO_2$, PM2.5, Temperature, Humidity).
-  3. **Tiered Storage Architecture (Hot Live vs Warm/Cold Historical):** Deep diagnostic metrics ($TVOC$, $PM_{10}$, Atmospheric Pressure) are indexed and stored in **InfluxDB**, available on-demand via vectorized SQL queries without incurring wire or CPU overhead on the hot 60 FPS live edge streaming loop.
+- **Sensor limit.** The 4-bit sensor index addresses up to 16 sensors per gateway. Larger deployments can either widen the frame to 18 bytes with a 16-bit index or partition sensors across gateways.
+- **Scope of the live stream.** Only the primary health metrics (CO2, PM2.5, temperature, humidity) are streamed live. Secondary metrics (TVOC, PM10, atmospheric pressure) are persisted in InfluxDB and retrieved on demand, keeping the live frame small and fixed-size.
 
----
+## Security
 
-## 🔐 Security Architecture & Secrets Management
+### Secrets
 
-The platform enforces a strict **Defense-in-Depth** model designed for secure deployment in untrusted or exposed edge environments:
-
-### 1. Development vs Production Secrets Declaration
 > [!IMPORTANT]
-> - **Local Development & Demo:** The repository provides default sandbox tokens (`INFLUXDB_TOKEN="kH9pBO5KNEvbEh620uQz..."`) configured strictly for local testing on `127.0.0.1`.
-> - **Production Deployment:** In real-world deployments, production tokens **must never be committed to source control**. Pass your secure tokens via Systemd service environment directives (`/etc/systemd/system/iot-*.service.d/override.conf`), Docker secrets, or cloud key vaults (Azure Key Vault, HashiCorp Vault).
+> The repository ships a default InfluxDB token intended only for local development on `127.0.0.1`.
+> Production tokens must never be committed. Provide them through systemd drop-ins (`/etc/systemd/system/iot-*.service.d/override.conf`), Docker secrets or a secrets manager such as HashiCorp Vault or Azure Key Vault.
 
-### 2. Threat Mitigations & Hardening Scorecard
-- **SQL / InfluxQL Injection Mitigation ([CWE-89](https://cwe.mitre.org/data/definitions/89.html) / [CWE-20](https://cwe.mitre.org/data/definitions/20.html)):** Hardware sensor identifiers in HTTP URL routes are strictly validated against the regex `^[a-zA-Z0-9_-]{1,64}$` before any query interpolation.
-- **Resource Exhaustion & DoS Protection ([CWE-400](https://cwe.mitre.org/data/definitions/400.html)):** Strict concurrency caps (max 64 concurrent SSE clients), bounded queues with *drop-oldest* eviction, and fixed-size circular ring buffers (3,600 points).
-- **Host Process Sandboxing:** All background services run as non-root unprivileged users (`User=iot-service`) with full Linux Systemd sandboxing:
-  `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp=true`, `NoNewPrivileges=true`, `MemoryMax=40M`, `LockPersonality=true`.
-- **Zero-Allocation Embedded Memory ([CWE-120](https://cwe.mitre.org/data/definitions/120.html)):** Nanopb static output stream buffer (`pb_ostream_from_buffer`, 256 bytes) eliminates all `malloc()` invocations in the ESP32 transmission loop, preventing memory leaks and heap fragmentation.
+### Hardening Measures
 
----
+| Threat | Mitigation |
+| :--- | :--- |
+| Query injection ([CWE-89](https://cwe.mitre.org/data/definitions/89.html), [CWE-20](https://cwe.mitre.org/data/definitions/20.html)) | Sensor identifiers in URLs are validated against `^[a-zA-Z0-9_-]{1,64}$` before use in queries |
+| Resource exhaustion ([CWE-400](https://cwe.mitre.org/data/definitions/400.html)) | At most 64 concurrent SSE clients; bounded queues with drop-oldest eviction; fixed-size ring buffers (3,600 points) |
+| Buffer overflow on device ([CWE-120](https://cwe.mitre.org/data/definitions/120.html)) | Nanopb encodes into a static 256-byte buffer; no heap allocation in the transmit loop |
+| Host compromise | Services run as an unprivileged user (`User=iot-service`) with systemd sandboxing: `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp=true`, `NoNewPrivileges=true`, `LockPersonality=true`, `MemoryMax=40M` |
 
-## 📑 Architecture Decision Records (ADRs)
+## Architecture Decision Records
 
-- [ADR 0001: Zero-Bloat Bare-Metal Architecture](docs/adr/0001-baremetal-protobuf-fasthtml-influx.md)
-- [ADR 0002: Ultra-Minimalist Web Performance & Zero-GC Frontend Optimizations](docs/adr/0002-ultra-minimalist-web-performance-optimizations.md)
-- [ADR 0003: Rust Central Ingestion Hub & Decoupled Local IPC Telemetry Streaming](docs/adr/0003-rust-central-hub-and-ipc-telemetry-streaming.md)
-- [ADR 0004: V2 Evolution — In-Process Embedded DuckDB Engine & Single-File Storage](docs/adr/0004-v2-embedded-duckdb-storage-engine.md)
+| ADR | Title |
+| :--- | :--- |
+| [0001](docs/adr/0001-baremetal-protobuf-fasthtml-influx.md) | Bare-metal architecture: Protobuf, FastHTML and InfluxDB |
+| [0002](docs/adr/0002-ultra-minimalist-web-performance-optimizations.md) | Frontend performance optimizations |
+| [0003](docs/adr/0003-rust-central-hub-and-ipc-telemetry-streaming.md) | Rust ingestion hub and local IPC streaming |
+| [0004](docs/adr/0004-v2-embedded-duckdb-storage-engine.md) | Proposed v2: embedded DuckDB storage engine |
 
----
+## License
 
-## 📜 License
-MIT License. Crafted with zero-bloat engineering discipline.
+Released under the MIT License.
