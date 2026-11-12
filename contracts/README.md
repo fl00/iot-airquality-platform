@@ -1,38 +1,22 @@
-# IoT Air Quality Platform - Contracts Micro-Repository (`iot-airquality-contracts`)
+# Contracts
 
-## 1. Overview & Protocol Specification
+[`proto/air_quality.proto`](proto/air_quality.proto) is the reference for the wire format between a sensor node and the ingestor. Field semantics are documented in the file itself.
 
-The `iot-airquality-contracts` repository defines the canonical Protocol Buffers v3 schema for the entire bare-metal IoT air quality ecosystem. It enforces strict binary backwards-compatibility, wire-level compactness, and zero-allocation framing.
+- Transport: MQTT, topic `sensors/<device_id>/airquality`, one `AirQualityPacket` per message.
+- One packet carries one complete measurement (`FullSample`), about 64 bytes.
+- Delta-encoded batches are not part of V1; field 8 is reserved for them. See [ADR 0005](../docs/adr/0005-v1-scope.md).
 
-### Wire Efficiency & Sizing Benchmarks
+## Bindings
 
-| Metric / Format | JSON Telemetry | Standard Protobuf (Keyframe) | Delta-Encoded ZigZag Protobuf |
-| :--- | :--- | :--- | :--- |
-| **Payload Size** | ~180 – 240 bytes | **~28 – 35 bytes** | **~6 – 12 bytes / sample** |
-| **Parsing Cost** | String tokenize / Float parse | Zero-copy Varint decode | Bitshift & ZigZag decode |
-| **Bandwidth Savings** | Baseline (0%) | **~85% reduction** | **~96% reduction** |
-| **Wi-Fi TX Time** | ~14ms | **~2.1ms** | **~0.8ms** |
+| Language | File | How it is produced |
+| :--- | :--- | :--- |
+| Python (simulator, tests) | `firmware/tools/proto/air_quality_pb2.py` | `protoc` or `grpc_tools` |
+| C (firmware, Nanopb) | `firmware/include/air_quality.pb.h`, `firmware/src/air_quality.pb.c` | `nanopb_generator.py` with [`proto/air_quality.options`](proto/air_quality.options) |
+| Rust (ingestor, Prost) | `ingestor/src/proto/mod.rs` | Maintained by hand |
 
----
+## Changing the contract
 
-## 2. Packet Architecture
-
-The schema supports two operational telemetry modes:
-
-1. **`FullSample` (Keyframe):** Sent on boot, every 60 seconds, or upon significant environmental shifts (> 50 PPM CO2 drift). Transmits full 32-bit floating-point metrics (`temperature_celsius`, `humidity_percent`, `pm25_ug_m3`, `pressure_hpa`).
-2. **`DeltaSample` (ZigZag Varints):** Sent every 5 seconds. Uses Google Protobuf `sint32` (ZigZag varint encoding) to pack micro-deltas relative to the previous sample. Small positive/negative drifts (`-2`, `+1`) occupy only **1 single byte** on the wire.
-
----
-
-## 3. Compilation Workflow
-
-Run the cross-compilation pipeline:
-
-```bash
-./compile.sh
-```
-
-Generates:
-- **C/C++ (Nanopb):** `../firmware/include/air_quality.pb.h` and `../firmware/src/air_quality.pb.c`
-- **Rust (Prost):** `../ingestor/src/proto/` (or auto-generated during Cargo build)
-- **Python (protoc):** `../firmware/tools/proto/air_quality_pb2.py`
+1. Edit `proto/air_quality.proto`. Never reuse or renumber a field; add new ones.
+2. Run `make contracts`. A generator that is not installed is skipped and reported: update that binding by hand.
+3. Update `ingestor/src/proto/mod.rs`.
+4. Run `make test` with `NANOPB_DIR` set: the firmware host test encodes a packet in C and decodes it with the Python bindings, which catches a mismatch between the two.

@@ -85,6 +85,7 @@ TVOC encompasses a wide variety of gaseous carbon-based chemical substances (for
 ## 3. Composite Air Quality Index Calculation Engine (AQI / ATMO)
 
 To facilitate intuitive user decision-making, the platform computes a real-time **composite score from 1 to 5**.
+It is computed in one place, by the ingestor (`compute_aqi_level` in `ingestor/src/metrics.rs`).
 
 ### The Worst-Case Limiting Factor Principle
 Overall air quality is dictated by its most degraded individual component:

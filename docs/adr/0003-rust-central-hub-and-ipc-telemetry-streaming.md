@@ -1,5 +1,7 @@
 # ADR 0003: Rust Central Ingestion Hub & Decoupled Local IPC Telemetry Streaming
 
+> **Note (ADR 0005).** Still the V1 architecture, with two changes: the stream carries JSON events (no binary frame), and there is no delta reconstruction. Figures in the last table were never measured.
+
 ## Status
 **Accepted & Implemented**
 

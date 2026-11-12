@@ -1,7 +1,7 @@
 # Nœud capteur qualité d'air — ESP32 + BME680 + SCD41 + PMS7003
 
 Prototype matériel de la plateforme : carte porteuse, firmware et boîtier imprimable.
-Le nœud publie une trame Protobuf `AirQualityPacket` (keyframe `FullSample`, ~64 octets)
+Le nœud publie une trame Protobuf `AirQualityPacket` (une mesure complète `FullSample`, ~64 octets)
 toutes les 5 s sur `sensors/<DEVICE_ID>/airquality`, conformément à `contracts/proto/air_quality.proto`.
 
 ## 1. Nomenclature
@@ -89,7 +89,8 @@ NANOPB_DIR=/chemin/vers/nanopb test_host/run.sh  # test hors cible : parseur PMS
 Le SCD41 est piloté par un pilote maison de ~60 lignes (`include/scd4x.h`), sans dépendance supplémentaire.
 
 Comportement : boucle non bloquante (BSEC impose son propre cadencement à 3 s), reconnexion Wi-Fi/MQTT en tâche
-de fond, file d'attente LittleFS hors ligne rejouée à la reconnexion, état de calibration BSEC sauvegardé en
+de fond, file d'attente LittleFS hors ligne rejouée à la reconnexion (les trames produites avant la
+synchronisation NTP ne sont pas mises en file, faute de pouvoir être datées au rejeu), état de calibration BSEC sauvegardé en
 flash toutes les 6 h, watchdog matériel à 15 s.
 
 ### Limites à connaître
@@ -100,7 +101,7 @@ flash toutes les 6 h, watchdog matériel à 15 s.
 - **Auto-échauffement.** Le SCD41 partage la chambre du BME680 et y dissipe ~50 mW : cela s'ajoute à l'écart
   de température à corriger avec `BME_TEMP_OFFSET_C`.
 - **Échelle des COV.** `tvoc_ppb` est le « breath-VOC équivalent » de BSEC (~500 ppb en air propre). Les seuils
-  de l'ingestor et du dashboard sont calés sur cette échelle : 800 / 1900 / 4800 / 12000 ppb, soit les classes
+  de l'ingestor (seul endroit où l'indice est calculé) sont calés sur cette échelle : 800 / 1900 / 4800 / 12000 ppb, soit les classes
   IAQ de Bosch (indice statique 50 / 100 / 150 / 200). La conversion indice → ppb repose sur deux relevés BSEC
   publiés seulement, Bosch ne documentant pas la formule : la ligne `[TX]` du moniteur série affiche `sIAQ` et
   `bVOC` côte à côte pour la vérifier sur votre capteur et ajuster les seuils.

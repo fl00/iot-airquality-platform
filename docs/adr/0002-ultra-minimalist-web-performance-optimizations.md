@@ -1,5 +1,7 @@
 # ADR 0002: Ultra-Minimalist Web Performance & Zero-GC Frontend Optimizations
 
+> **Note (ADR 0005).** The 16-byte binary live frame described here was replaced by JSON events in V1. Performance figures below were never measured.
+
 ## Status
 **Accepted & Implemented**
 

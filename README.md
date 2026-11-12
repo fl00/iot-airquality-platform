@@ -1,232 +1,222 @@
 # IoT Air Quality Platform
 
-[![CI](https://github.com/fl0rent/iot-airquality-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/fl0rent/iot-airquality-platform/actions/workflows/ci.yml)
-[![Rust](https://img.shields.io/badge/ingestor-Rust%20%7C%20Tokio%201.x-informational)](ingestor/)
-[![Python](https://img.shields.io/badge/dashboard-FastHTML%20%7C%20uvloop-informational)](dashboard/)
-[![Protobuf](https://img.shields.io/badge/wire-Protobuf%20v3%20(Nanopb)-informational)](contracts/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](#license)
+[![CI](https://github.com/fl00/iot-airquality-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/fl00/iot-airquality-platform/actions/workflows/ci.yml)
 
-An air quality monitoring platform built for constrained hardware: ESP32 sensor nodes, single-board computers (Raspberry Pi) and industrial gateways. The complete server-side stack runs in roughly 50 MB of RAM.
+Indoor air quality monitoring on a single small host (Raspberry Pi, home server): ESP32 sensor nodes measure CO2, particulate matter, VOC, temperature, humidity and pressure; the platform stores the measurements and shows them live and over time.
+
+**Status: V1 prototype.** The goal of V1 is an end-to-end chain that can run unattended for several weeks and produce trustworthy data. Scope decisions and deferred optimisations are recorded in [ADR 0005](docs/adr/0005-v1-scope.md); the validation procedure is in [docs/V1_VALIDATION.md](docs/V1_VALIDATION.md).
 
 ## Contents
 
 - [Architecture](#architecture)
-- [Repository Layout](#repository-layout)
+- [Data Contracts](#data-contracts)
+- [Behaviour on Failure](#behaviour-on-failure)
 - [Getting Started](#getting-started)
-- [Resource Footprint](#resource-footprint)
-- [Live Streaming Protocol](#live-streaming-protocol)
+- [Configuration](#configuration)
+- [Tests](#tests)
 - [Security](#security)
-- [Architecture Decision Records](#architecture-decision-records)
+- [Known Limits of V1](#known-limits-of-v1)
+- [Repository Layout](#repository-layout)
+- [Documentation](#documentation)
 - [License](#license)
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          ESP32 FIRMWARE (Nanopb)                        │
-│  Static allocation · LittleFS store-and-forward · Hardware watchdog     │
-│  Keyframes (65 B) and delta batches (8 B per sample)                    │
-└────────────────────────────────────┬────────────────────────────────────┘
-                                     │ MQTT, Protobuf v3 payloads
-                                     ▼
-                   ┌───────────────────────────────────┐
-                   │          Mosquitto broker         │
-                   └─────────────────┬─────────────────┘
-                                     │ single subscriber
-                                     ▼
-                   ┌───────────────────────────────────┐
-                   │         Rust ingestion hub        │
-                   │  Protobuf decoding (Prost)        │
-                   │  Micro-batching, circuit breaker  │
-                   │  Prometheus metrics  :9100        │
-                   │  Local IPC stream    :9100/stream │
-                   └─────────┬───────────────┬─────────┘
-                             │               │
-          ┌──────────────────┘               └─────────────────────────┐
-          │ Line Protocol over HTTP                                    │ Local IPC (SSE)
-          ▼                                                            ▼
-┌─────────────────────┐                                  ┌───────────────────────────┐
-│    InfluxDB v2/v3   │◄──────── SQL queries ────────────┤    FastHTML dashboard     │
-│  Time-series store  │        (history, aggregates)     │  No MQTT / Protobuf deps  │
-└─────────────────────┘                                  │  In-memory sensor state   │
-                                                         └─────────────┬─────────────┘
-                                                                       │ SSE, 16-byte frames
-                                                                       ▼
-                                                         ┌───────────────────────────┐
-                                                         │  Browser (HTMX + uPlot)   │
-                                                         └───────────────────────────┘
+ ESP32 node ──MQTT/Protobuf──► Mosquitto ──► Ingestor (Rust) ──line protocol──► InfluxDB 2
+ (firmware/)                    :1883         127.0.0.1:9100                      127.0.0.1:8086
+                                                   │                                   ▲
+                                                   │ JSON events (SSE)                 │ InfluxQL
+                                                   ▼                                   │
+                                              Dashboard (Python) ──────────────────────┘
+                                              127.0.0.1:8000
+                                                   ▲
+                                                   │ HTTP + SSE
+                                              Caddy :80 ◄── browser
 ```
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant ESP as ESP32 (Nanopb)
-    participant MQTT as Mosquitto (:1883)
-    participant Ingest as Rust Ingestor (:9100)
-    participant Influx as InfluxDB (:8086)
-    participant Dashboard as FastHTML (:8000)
-    participant Browser as Browser (uPlot)
-
-    ESP->>MQTT: Publish keyframe (65 B) or delta (8 B)
-    MQTT->>Ingest: Deliver message
-    par Storage
-        Ingest->>Ingest: Buffer up to 12 samples
-        Ingest->>Influx: Batched Line Protocol write (HTTP 204)
-    and Live stream
-        Ingest->>Dashboard: 16-byte frame, Base64 over SSE
-        Dashboard->>Browser: Forward SSE frame unchanged
-        Browser->>Browser: Decode ArrayBuffer(16) and update chart
-    end
-    Note over Browser,Influx: Historical data is queried by the dashboard directly from InfluxDB (SQL, epoch=s)
-```
-
-### Components
 
 | Component | Technology | Responsibility |
 | :--- | :--- | :--- |
-| Firmware | C++, PlatformIO, Nanopb | Sensor acquisition, Protobuf encoding, offline buffering on flash |
-| Broker | Mosquitto | MQTT transport between nodes and the ingestor |
-| Ingestor | Rust, Tokio, Prost | Decoding, batched persistence, metrics, live stream fan-out |
-| Storage | InfluxDB v2/v3 | Time-series storage and historical aggregation |
-| Dashboard | Python, FastHTML, uvloop, uPlot | Real-time and historical visualization |
+| Sensor node | ESP32, PlatformIO, Nanopb | Reads BME680, SCD41 and PMS7003; publishes one packet every 5 s; buffers on flash while offline |
+| Broker | Mosquitto | MQTT transport, authenticated |
+| Ingestor | Rust, Tokio, Prost | Only MQTT subscriber. Validates packets, writes to InfluxDB in batches, computes the AQI level, publishes the live event stream and Prometheus metrics |
+| Storage | InfluxDB 2 | Time series, 90-day retention |
+| Dashboard | Python, FastHTML, HTMX, uPlot | Live cards and history charts. Reads the ingestor stream and InfluxDB; has no MQTT or Protobuf dependency |
+| Reverse proxy | Caddy | Single HTTP entry point |
 
-## Repository Layout
+Only two ports are reachable from the network: 1883 (sensors) and 80 (browsers). Everything else listens on `127.0.0.1`.
 
+## Data Contracts
+
+The platform has three interfaces. Each has exactly one definition.
+
+### 1. Sensor node to ingestor (MQTT, Protobuf)
+
+- Topic: `sensors/<device_id>/airquality`, one `AirQualityPacket` per message, about 64 bytes.
+- Schema: [`contracts/proto/air_quality.proto`](contracts/proto/air_quality.proto). It is the reference; field semantics are documented there.
+- `device_id` matches `[A-Za-z0-9_-]{1,31}` and must equal the id in the topic.
+- A field whose sensor is missing is `0`, and `status` is `STATUS_DEGRADED`.
+- `base_timestamp_sec` is `0` until the node clock is synchronised; the ingestor then uses the reception time.
+
+### 2. Ingestor to InfluxDB (line protocol)
+
+Measurement `air_quality`, tag `device_id`, timestamp in nanoseconds.
+
+| Field | Type | Unit | Note |
+| :--- | :--- | :--- | :--- |
+| `co2` | integer | ppm | Omitted when the node reports 0 (sensor missing) |
+| `pressure` | float | hPa | Omitted when the node reports 0 (sensor missing) |
+| `temperature` | float | °C | |
+| `humidity` | float | % | |
+| `pm25`, `pm10` | float | µg/m³ | |
+| `tvoc` | float | ppb | BSEC breath-VOC equivalent |
+| `battery_mv` | integer | mV | 0 = mains powered |
+| `rssi` | integer | dBm | |
+| `status` | integer | | `SensorStatus` value: 0 OK, 1 warming up, 2 degraded, 3 fault |
+
+### 3. Ingestor live stream (HTTP, Server-Sent Events)
+
+`GET http://127.0.0.1:9100/stream` sends one JSON object per accepted packet:
+
+```json
+{"device_id":"kitchen","timestamp_ns":1794000000000000000,"co2_ppm":650,
+ "temperature_celsius":21.5,"humidity_percent":45.0,"pm25_ug_m3":3.0,"pm10_ug_m3":5.0,
+ "tvoc_ppb":500.0,"pressure_hpa":1013.2,"battery_millivolts":0,"rssi_dbm":-60,
+ "status":0,"aqi_level":1}
 ```
-iot-airquality-platform/
-├── contracts/          Protobuf v3 schemas and code generation
-│   ├── proto/air_quality.proto
-│   └── compile.sh
-├── firmware/           ESP32 firmware (PlatformIO, Nanopb)
-│   ├── src/main.cpp
-│   ├── include/
-│   └── tools/mock_publisher.py      Telemetry simulator
-├── ingestor/           Rust ingestion service
-│   ├── src/main.rs
-│   ├── src/metrics.rs               HTTP /metrics and /stream endpoints
-│   ├── src/sink.rs                  InfluxDB batch writer
-│   └── Cargo.toml
-├── dashboard/          FastHTML web application
-│   ├── main.py                      Application and SSE broadcaster
-│   ├── stream_bridge.py             IPC client for the ingestor stream
-│   ├── influx_service.py            Historical queries
-│   └── static/                      CSS, JavaScript, icons
-├── deploy/             Production deployment
-│   ├── systemd/                     Hardened service units
-│   ├── mosquitto/                   Broker configuration
-│   ├── influxdb/                    Database configuration
-│   └── sysctl.d/                    Kernel network tuning
-├── docs/
-│   ├── adr/                         Architecture Decision Records
-│   ├── AIR_QUALITY_GUIDE.md         Health thresholds guide (French)
-│   └── AIR_QUALITY_GUIDE_EN.md      Health thresholds guide (English)
-├── scripts/
-│   └── test-stack.sh                End-to-end verification
-└── Makefile
-```
 
-Each component directory contains its own README with build and configuration details.
+`aqi_level` (1 excellent to 5 bad) is the worst of the CO2, PM2.5 and VOC sub-levels. It is computed in one place, `compute_aqi_level` in [`ingestor/src/metrics.rs`](ingestor/src/metrics.rs); thresholds and their rationale are in the [air quality guide](docs/AIR_QUALITY_GUIDE_EN.md).
+
+The same port serves `GET /metrics` (Prometheus text format) and `GET /health`.
+
+## Behaviour on Failure
+
+| Situation | Behaviour | Data lost |
+| :--- | :--- | :--- |
+| Node loses Wi-Fi or the broker | Packets are appended to a 512 KB flash queue (about 11 h) and replayed on reconnection | None up to 11 h; beyond, the queue is cleared and restarts |
+| Node has no synchronised clock and is offline | Packets are not queued (they could not be dated on replay) | Yes, until NTP has synchronised once |
+| A sensor is disconnected | Its fields are 0, `status` = degraded; CO2 and pressure are not stored; the dashboard shows "Degraded" | That sensor's values only |
+| Node stops publishing | Dashboard shows "Offline" after 30 s | — |
+| Invalid packet (bad id, topic mismatch, non-finite value, undecodable) | Dropped and counted in `iot_packets_dropped_total` | That packet |
+| InfluxDB unreachable or failing | Up to 5,000 samples are kept in memory (about 7 h for one node) and retried every 30 s | None up to the buffer size; then the oldest samples |
+| Ingestor stopped (`systemctl stop`, Ctrl-C) | Pending batch is written before exit | None for accepted packets |
+| Ingestor or broker down | The node cannot tell that nobody listens | Yes, for the duration |
+| InfluxDB has no data for a chart | Empty chart; values are never synthesised | — |
 
 ## Getting Started
 
 ### Prerequisites
 
-- Python 3.10+
-- Rust toolchain (`cargo`, `rustc`)
-- GCC or Clang
-- Mosquitto MQTT broker on port 1883
-- InfluxDB v2.x or v3.x on port 8086
+- Rust toolchain, Python 3.10+, Mosquitto, InfluxDB 2.x
+- For the firmware: PlatformIO (`pipx install platformio`)
 
-### Build and Run
+### Local run with simulated sensors
 
 ```bash
-make build           # Generate Protobuf code and build the ingestor (release)
-make test            # Run the verification suite
-
-make run-ingestor    # Terminal 1: start the ingestion service
-make run-dashboard   # Terminal 2: start the dashboard
-make run-mock        # Terminal 3: publish simulated ESP32 telemetry
+cp .env.example .env                               # then set INFLUXDB_TOKEN
+pip install -r dashboard/requirements.txt paho-mqtt protobuf
+make build                                         # release build of the ingestor
+make start                                         # ingestor + dashboard + 3 simulated sensors
 ```
 
-The dashboard is available at `http://localhost:8000/`.
+Open `http://localhost:8000/`. `make status`, `make logs` and `make stop` manage the stack; `make help` lists every target.
 
-## Resource Footprint
+### Real sensor node
 
-Resident memory (RSS) measured on the reference deployment, against per-service budgets.
+Wiring, firmware build and commissioning are described in [`hardware/README.md`](hardware/README.md) (French). In short:
 
-| Service | Budget | Measured RSS | Notes |
-| :--- | ---: | ---: | :--- |
-| Mosquitto | < 5 MB | ~3.2 MB | Memory limits in broker configuration |
-| Rust ingestor | < 10 MB | ~5.8 MB | LTO, `panic = "abort"` |
-| InfluxDB | < 25 MB | ~18.0 MB | 32 MB cache ceiling |
-| FastHTML dashboard | < 20 MB | ~14.5 MB | Python 3.12, uvloop, single worker |
-| Caddy reverse proxy | < 10 MB | ~8.0 MB | TLS termination, HTTP/3 |
-| **Total** | **< 60 MB** | **~49.5 MB** | |
+```bash
+cd firmware
+cp include/secrets.example.h include/secrets.h     # Wi-Fi, broker address, DEVICE_ID
+pio run -e esp32dev -t upload && pio device monitor
+```
 
-## Live Streaming Protocol
+### Deployment on a dedicated host
 
-Live telemetry is carried from the ingestor to the browser as fixed-size 16-byte frames (struct format `>IHhHHHbB`, big-endian). The dashboard forwards frames without decoding them.
+```bash
+make build && sudo ./deploy/deploy-baremetal.sh
+```
 
-### Frame Layout
+See [`deploy/README.md`](deploy/README.md).
 
-| Bytes | Field | Type | Unit |
+## Configuration
+
+All settings are environment variables. Locally they are read from `.env`; in production from `/etc/iot-airquality/env`.
+
+| Variable | Default | Used by | Purpose |
 | :--- | :--- | :--- | :--- |
-| 0–3 | Timestamp | `uint32` | Unix seconds |
-| 4–5 | CO2 | `uint16` | ppm |
-| 6–7 | Temperature | `int16` | 0.01 °C |
-| 8–9 | Humidity | `uint16` | 0.01 % |
-| 10–11 | PM2.5 | `uint16` | 0.01 µg/m³ |
-| 12–13 | Battery | `uint16` | mV |
-| 14 | RSSI | `int8` | dBm |
-| 15 (bits 4–7) | AQI level | 4-bit | 1–5 |
-| 15 (bits 0–3) | Sensor index | 4-bit | 0–15 |
+| `INFLUXDB_TOKEN` | none, required | ingestor, dashboard | InfluxDB API token. Services refuse to start without it |
+| `INFLUXDB_URL` | `http://127.0.0.1:8086` | ingestor, dashboard | |
+| `INFLUXDB_ORG` | `baremetal-iot` | ingestor | |
+| `INFLUXDB_BUCKET` | `airquality` | ingestor, dashboard | |
+| `MQTT_BROKER_HOST` / `MQTT_BROKER_PORT` | `127.0.0.1` / `1883` | ingestor, simulator | |
+| `MQTT_USER` / `MQTT_PASSWORD` | unset | ingestor, simulator | Required when the broker enforces authentication (always in production) |
+| `MQTT_TOPIC` | `sensors/+/airquality` | ingestor | |
+| `INGESTOR_BATCH_SIZE` | `12` | ingestor | Samples per InfluxDB write |
+| `INGESTOR_FLUSH_INTERVAL_SECS` | `30` | ingestor | Maximum delay before a write, and retry period |
+| `METRICS_PORT` | `9100` | ingestor, dashboard | Ingestor HTTP port on `127.0.0.1` |
 
-A frame is 16 bytes, encoded as 24 Base64 characters on the wire.
+Sensor node settings (pins, intervals, credentials) are compile-time constants in `firmware/include/config.h` and `secrets.h`.
 
-### Endpoints
-
-The ingestor exposes the stream on `/stream` in two formats:
+## Tests
 
 ```bash
-# Binary frames, Base64-encoded (default, used by the dashboard)
-curl -N http://127.0.0.1:9100/stream
-# data: aoXFKwJsCOgTJAKKDyjEIA==
-
-# JSON, for debugging
-curl -N "http://127.0.0.1:9100/stream?format=json"
-# data: {"device_id":"sensor-esp32-01","co2_ppm":620,"temperature_celsius":22.8,...}
+make test
 ```
 
-### Design Notes
+| Check | Covers |
+| :--- | :--- |
+| Ingestor unit tests | Packet validation, line protocol, AQI thresholds, stream event |
+| End-to-end test (`scripts/e2e_test.py`) | A packet published over MQTT reaches the InfluxDB write and the dashboard; rejected packets; retry after a failed write; flush on SIGTERM. InfluxDB is replaced by a local recorder, so no database is needed |
+| Firmware host test (`firmware/test_host/run.sh`) | Sensor parsers and Protobuf encoding, decoded by the Python bindings. Runs when `NANOPB_DIR` is set |
 
-- **Sensor limit.** The 4-bit sensor index addresses up to 16 sensors per gateway. Larger deployments can either widen the frame to 18 bytes with a 16-bit index or partition sensors across gateways.
-- **Scope of the live stream.** Only the primary health metrics (CO2, PM2.5, temperature, humidity) are streamed live. Secondary metrics (TVOC, PM10, atmospheric pressure) are persisted in InfluxDB and retrieved on demand, keeping the live frame small and fixed-size.
+Not covered by automation: the firmware on real hardware, and a real InfluxDB instance. Both are part of the [V1 validation](docs/V1_VALIDATION.md).
 
 ## Security
 
-### Secrets
-
-> [!IMPORTANT]
-> The repository ships a default InfluxDB token intended only for local development on `127.0.0.1`.
-> Production tokens must never be committed. Provide them through systemd drop-ins (`/etc/systemd/system/iot-*.service.d/override.conf`), Docker secrets or a secrets manager such as HashiCorp Vault or Azure Key Vault.
-
-### Hardening Measures
-
-| Threat | Mitigation |
+| Threat | Measure |
 | :--- | :--- |
-| Query injection ([CWE-89](https://cwe.mitre.org/data/definitions/89.html), [CWE-20](https://cwe.mitre.org/data/definitions/20.html)) | Sensor identifiers in URLs are validated against `^[a-zA-Z0-9_-]{1,64}$` before use in queries |
-| Resource exhaustion ([CWE-400](https://cwe.mitre.org/data/definitions/400.html)) | At most 64 concurrent SSE clients; bounded queues with drop-oldest eviction; fixed-size ring buffers (3,600 points) |
-| Buffer overflow on device ([CWE-120](https://cwe.mitre.org/data/definitions/120.html)) | Nanopb encodes into a static 256-byte buffer; no heap allocation in the transmit loop |
-| Host compromise | Services run as an unprivileged user (`User=iot-service`) with systemd sandboxing: `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp=true`, `NoNewPrivileges=true`, `LockPersonality=true`, `MemoryMax=40M` |
+| Secrets in the repository | None. Tokens and passwords are generated at deployment and stored in `/etc/iot-airquality/` (root-owned) |
+| Rogue MQTT client | Broker requires a user and password; the ingestor rejects packets whose topic id differs from the payload id |
+| Injection through the device id | Ids are restricted to `[A-Za-z0-9_-]` by the ingestor before storage, and again by the dashboard before any query |
+| Exposure of internal services | Ingestor, InfluxDB and dashboard listen on `127.0.0.1` only |
+| Resource exhaustion | Bounded queues everywhere; at most 64 concurrent live-stream browsers |
+| Host compromise through a service | systemd units run as an unprivileged user with `ProtectSystem=strict`, `NoNewPrivileges`, `MemoryMax=40M` |
 
-## Architecture Decision Records
+V1 assumes a trusted LAN: MQTT and the dashboard are not encrypted, and the dashboard has no login. See the limits below before exposing anything to the internet.
 
-| ADR | Title |
+## Known Limits of V1
+
+- No TLS on MQTT or HTTP, no dashboard authentication.
+- Samples buffered by the ingestor are held in memory: a crash or power cut while InfluxDB is down loses them.
+- The ingestor uses a clean MQTT session: packets sent while it is down are lost.
+- The dashboard forgets its sensor list on restart; cards reappear with the next packet (within 5 s).
+- VOC thresholds are derived from two published BSEC readings and must be confirmed on real sensors.
+- Firmware has been compiled but not yet run on hardware.
+- `deploy/iac/main.bicep` (Azure VM) predates V1 and opens MQTT and HTTP to the internet without encryption. Do not use it as is.
+
+## Repository Layout
+
+```
+contracts/    Protobuf schema (reference for the wire format) and binding generator
+firmware/     ESP32 firmware, simulator (tools/mock_publisher.py), host test
+hardware/     Carrier PCB and enclosure generators, bill of materials, commissioning (French)
+ingestor/     Rust service: MQTT -> InfluxDB + live stream
+dashboard/    FastHTML web application
+deploy/       Deployment script, systemd units, Mosquitto and Caddy configuration
+scripts/      Local stack controller, test runner, end-to-end test
+docs/         Architecture decision records, air quality guide, V1 validation
+```
+
+## Documentation
+
+| Document | Content |
 | :--- | :--- |
-| [0001](docs/adr/0001-baremetal-protobuf-fasthtml-influx.md) | Bare-metal architecture: Protobuf, FastHTML and InfluxDB |
-| [0002](docs/adr/0002-ultra-minimalist-web-performance-optimizations.md) | Frontend performance optimizations |
-| [0003](docs/adr/0003-rust-central-hub-and-ipc-telemetry-streaming.md) | Rust ingestion hub and local IPC streaming |
-| [0004](docs/adr/0004-v2-embedded-duckdb-storage-engine.md) | Proposed v2: embedded DuckDB storage engine |
+| [docs/V1_VALIDATION.md](docs/V1_VALIDATION.md) | Commissioning, weekly checks, exit criteria, feedback log |
+| [docs/adr/](docs/adr/) | Architecture decision records. [ADR 0005](docs/adr/0005-v1-scope.md) defines the V1 scope and lists the deferred optimisations |
+| [docs/AIR_QUALITY_GUIDE_EN.md](docs/AIR_QUALITY_GUIDE_EN.md) ([FR](docs/AIR_QUALITY_GUIDE.md)) | Indicators, health thresholds, AQI levels |
+| [hardware/README.md](hardware/README.md) | Sensor node: parts, wiring, PCB, enclosure (French) |
+| Component READMEs | [contracts](contracts/README.md), [firmware](firmware/README.md), [ingestor](ingestor/README.md), [dashboard](dashboard/README.md), [deploy](deploy/README.md) |
 
 ## License
 

@@ -1,5 +1,7 @@
 # ADR 0004: V2 Evolution — In-Process Embedded DuckDB Engine & Single-File Storage
 
+> **Note (ADR 0005).** Proposal for V2, to be decided from the V1 feedback. Resource figures quoted for V1 were never measured.
+
 ## Status
 **Proposed / Roadmap for V2**
 

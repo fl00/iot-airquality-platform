@@ -1,107 +1,56 @@
-# High-Throughput Rust Ingestion Engine (`iot-airquality-ingestor-rust`)
+# Ingestor
 
-## 1. Architectural Highlights
+Rust service, the only MQTT subscriber of the platform.
 
-- **Agnostic Sink Architecture:** Decouples message ingestion from time-series storage via the `MetricSink` async trait.
-- **Ring-Buffer Micro-Batching:** Decouples the low-latency MQTT ingest loop from HTTP I/O using a 1024-capacity bounded `tokio::sync::mpsc` channel. Accumulates batches of 12 samples (or triggers a 30s timeout flush), sending a single HTTP Line Protocol payload to InfluxDB v3 / v2.
-- **Circuit Breaker Resiliency:** Protects the ingestor from upstream InfluxDB crashes or timeouts with a 3-state state machine (Closed, Open, Half-Open).
-- **Extreme Memory Footprint:** Bounded async queues, zero-copy Protobuf parsing with `prost`, stripped release binaries (`strip = true`, `lto = true`, `opt-level = 3`, `panic = "abort"`).
+```
+MQTT packet ─► decode + validate ─┬─► batch ─► InfluxDB (line protocol)
+                                  └─► JSON event ─► /stream (dashboard)
+```
 
----
-
-## 2. Memory & Performance Benchmark
-
-| Runtime Parameter | Measured Value |
+| File | Role |
 | :--- | :--- |
-| **Idle Resident Memory (RSS)** | **~5.8 MB** |
-| **Peak Load Memory (1,000 pkts/sec)** | **~8.2 MB** |
-| **Throughput Capacity** | **> 125,000 samples / sec / core** |
-| **CPU Utilization (at 5s cadence)** | **< 0.1% of 1 vCPU** |
+| `src/main.rs` | Packet validation, batch writer with retry, MQTT loop, shutdown |
+| `src/sink.rs` | InfluxDB write and line-protocol formatting |
+| `src/metrics.rs` | Counters, AQI level, HTTP endpoint |
+| `src/config.rs` | Environment variables |
+| `src/proto/mod.rs` | Prost bindings of the wire contract (maintained by hand) |
 
----
+Interfaces (wire contract, InfluxDB schema, stream event) and failure behaviour are specified in the [root README](../README.md#data-contracts). Environment variables are listed [there](../README.md#configuration) as well.
 
-## 3. Environment Variables
+## Validation rules
 
-| Variable | Default Value | Description |
+A packet is dropped, and counted, when any of these holds:
+
+- it cannot be decoded, or carries no sample;
+- `device_id` does not match `[A-Za-z0-9_-]{1,31}`;
+- the id in the topic differs from the id in the payload;
+- a float value is NaN or infinite.
+
+## HTTP endpoint (`127.0.0.1:9100`)
+
+| Path | Content |
+| :--- | :--- |
+| `/stream` | Server-Sent Events, one JSON object per accepted packet |
+| `/metrics` | Prometheus text format |
+| `/health` | Liveness |
+
+| Metric | Type | Meaning |
 | :--- | :--- | :--- |
-| `MQTT_BROKER_HOST` | `127.0.0.1` | Hostname or IP of Mosquitto broker |
-| `MQTT_BROKER_PORT` | `1883` | Port of Mosquitto broker |
-| `MQTT_TOPIC` | `sensors/+/airquality` | Wildcard subscription topic |
-| `INFLUXDB_URL` | `http://127.0.0.1:8086` | Base URL of InfluxDB v2 instance |
-| `INFLUXDB_ORG` | `baremetal-iot` | Organization name |
-| `INFLUXDB_BUCKET` | `airquality` | Target measurement bucket |
-| `INFLUXDB_TOKEN` | `baremetal-dev-token-987654321` | InfluxDB API token |
-| `INGESTOR_BATCH_SIZE`| `12` | Sample batch flush threshold |
-| `INGESTOR_FLUSH_INTERVAL_SECS` | `30` | Max staleness flush timeout |
-| `METRICS_PORT` | `9100` | TCP port for Prometheus `/metrics` exposition |
-| `METRICS_ENABLED` | `true` | Enable/disable native metrics HTTP server |
+| `iot_packets_received_total` | counter | MQTT messages received |
+| `iot_packets_valid_total` | counter | Packets accepted |
+| `iot_packets_dropped_total` | counter | Packets rejected, all causes |
+| `iot_packets_spoofed_total` | counter | Subset of dropped: topic id differs from payload id |
+| `iot_influx_batches_total` | counter | Write attempts |
+| `iot_influx_points_written_total` | counter | Samples written |
+| `iot_influx_errors_total` | counter | Failed write attempts |
+| `iot_influx_last_batch_latency_ms` | gauge | Duration of the last write attempt |
+| `iot_influx_buffered_samples` | gauge | Samples waiting in memory; above 0 for long means InfluxDB is failing |
+| `iot_sensor_last_seen_seconds{device_id}` | gauge | Unix time of the last accepted packet per node |
 
----
-
-## 4. Native Prometheus Observability Endpoint (`/metrics`)
-
-The ingestor embeds an ultra-lightweight, zero-crate asynchronous HTTP 1.1 server serving standard Prometheus text metrics (version 0.0.4) on port `9100`.
-
-### Scrape Endpoint:
-```bash
-curl -s http://127.0.0.1:9100/metrics
-```
-
-### Metrics Exported:
-
-| Metric Name | Type | Description |
-| :--- | :---: | :--- |
-| `iot_packets_received_total` | Counter | Total MQTT telemetry packets received |
-| `iot_packets_valid_total` | Counter | Total successfully decoded valid packets |
-| `iot_packets_dropped_total` | Counter | Total malformed or rejected packets |
-| `iot_packets_spoofed_total` | Counter | Total packets dropped due to topic vs payload ID mismatch (Anti-Spoofing) |
-| `iot_influx_batches_total` | Counter | Total micro-batches sent to InfluxDB |
-| `iot_influx_points_written_total` | Counter | Total telemetry metric points written to InfluxDB |
-| `iot_influx_errors_total` | Counter | Total InfluxDB HTTP or network errors |
-| `iot_influx_last_batch_latency_ms` | Gauge | Duration in ms of the last InfluxDB write batch |
-| `iot_circuit_breaker_state` | Gauge | State of InfluxDB circuit breaker (`0`=Closed/OK, `1`=HalfOpen, `2`=Open) |
-| `iot_sensor_last_seen_seconds` | Gauge | Unix timestamp (seconds) of last seen packet per sensor |
-
-### Sample `prometheus.yml` Configuration:
-```yaml
-scrape_configs:
-  - job_name: "iot-airquality-ingestor"
-    scrape_interval: 10s
-    static_configs:
-      - targets: ["127.0.0.1:9100"]
-```
-
----
-
-## 5. Live Downstream IPC Telemetry Stream (`/stream`)
-
-To eliminate the double-consumer MQTT anti-pattern and centralize all Protobuf decoding in Rust, the HTTP server exposes an ultra-high-throughput Server-Sent Events (SSE) stream on `/stream`:
-
-### Default Production Mode (16-Byte Binary Base64 / Zero-Copy):
-```bash
-curl -N http://127.0.0.1:9100/stream
-# Returns: data: aoXFKwJsCOgTJAKKDyjEIA==\n\n
-```
-
-### Human-Readable Debug Mode (`?format=json`):
-```bash
-curl -N "http://127.0.0.1:9100/stream?format=json"
-# Returns: data: {"device_id":"sensor-esp32-01","co2_ppm":589,"temperature_celsius":23.15,...}\n\n
-```
-
-Downstream consumers (such as the FastHTML Dashboard UI) subscribe to the binary stream for zero-copy passthrough to browser canvases, ensuring zero split-brain, zero MQTT dependencies in presentation tiers, and sub-microsecond event delivery.
-
----
-
-## 6. Build & Run Instructions
+## Build, run, test
 
 ```bash
-# Debug build
-cargo build
-
-# Optimized release binary (< 3.5MB binary, LTO, panic=abort)
 cargo build --release
-
-# Run ingestor with default parameters
-./target/release/iot-airquality-ingestor
+INFLUXDB_TOKEN=... ./target/release/iot-airquality-ingestor   # or `make run-ingestor` with a .env file
+cargo test
 ```

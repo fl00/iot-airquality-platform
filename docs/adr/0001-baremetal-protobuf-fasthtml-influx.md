@@ -1,5 +1,7 @@
 # ADR 0001: Zero-Bloat Bare-Metal Architecture (Protobuf, Rust, FastHTML, InfluxDB v2)
 
+> **Note (ADR 0005).** V1 runs InfluxDB 2 with InfluxQL, not InfluxDB 3. The memory, size and latency figures below are design targets that were never measured. Delta encoding is deferred to V2.
+
 ## Status
 **Accepted** (Implemented in V1)
 

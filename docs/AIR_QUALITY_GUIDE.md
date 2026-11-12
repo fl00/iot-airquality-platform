@@ -85,6 +85,7 @@ Les COV regroupent une multitude de substances chimiques gazeuses (formaldéhyde
 ## 3. Moteur de Calcul de l'Indice Synthétique (AQI / ATMO)
 
 Pour faciliter la décision de l'utilisateur, la plateforme calcule en temps réel un **score composite de 1 à 5**.
+Le calcul est fait à un seul endroit, par l'ingestor (`compute_aqi_level` dans `ingestor/src/metrics.rs`).
 
 ### La Règle du Facteur Limitant (*Worst-Case Principle*)
 La qualité de l'air est dictée par son composant le plus dégradé :
