@@ -47,4 +47,4 @@ Routine checks for the validation period are in [`docs/V1_VALIDATION.md`](../doc
 
 - Plain HTTP and MQTT, no dashboard login: for a trusted LAN only.
 - The script has been syntax-checked but not yet run on a clean host.
-- [`iac/main.bicep`](iac/main.bicep) (Azure VM) predates V1 and opens ports 80 and 1883 to the internet. It is not part of V1; do not use it as is.
+- No remote access and no cloud deployment in V1. Do not open ports 80 or 1883 to the internet; remote access through a private overlay network is planned for V2 ([ADR 0005](../docs/adr/0005-v1-scope.md)).

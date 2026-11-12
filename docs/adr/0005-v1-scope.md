@@ -64,7 +64,8 @@ To be decided from the V1 feedback log ([V1_VALIDATION.md](../V1_VALIDATION.md))
 | Embedded storage engine (ADR 0004) | InfluxDB memory or operations prove to be a burden during V1 | Measured resource usage from V1 |
 | Buffer persisted on disk in the ingestor | InfluxDB outages longer than the memory buffer are observed | — |
 | Persistent broker session, QoS 1 from the node | Packets are lost during ingestor restarts in practice | — |
-| TLS for MQTT and HTTP, dashboard login | Any exposure beyond the LAN | Certificates on the node |
+| Remote access through a private overlay network (Tailscale or an open-source equivalent such as WireGuard or Headscale) | Access from outside the LAN, or a cloud host, is needed | No public port; the sensor nodes stay on the host's LAN, or a router carries the tunnel |
+| TLS for MQTT and HTTP, dashboard login | Public exposure is required and an overlay network is not enough | Certificates on the node |
 | Alerting (offline node, threshold exceeded) | Requested from V1 use | — |
 | PMS7003 duty cycling | Sensor lifetime becomes a concern | Warm-up handling in the firmware |
 | Generated Nanopb and Prost bindings in CI | The contract changes more than occasionally | Generators installed in CI |

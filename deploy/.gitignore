@@ -1,7 +1,4 @@
 # Secrets & Local State
-*.tfstate
-*.tfstate.*
-.terraform/
 *.env
 *.pem
 *.key

@@ -193,7 +193,7 @@ V1 assumes a trusted LAN: MQTT and the dashboard are not encrypted, and the dash
 - The dashboard forgets its sensor list on restart; cards reappear with the next packet (within 5 s).
 - VOC thresholds are derived from two published BSEC readings and must be confirmed on real sensors.
 - Firmware has been compiled but not yet run on hardware.
-- `deploy/iac/main.bicep` (Azure VM) predates V1 and opens MQTT and HTTP to the internet without encryption. Do not use it as is.
+- No remote access: the host is reachable from its LAN only. A private overlay network is planned for V2 (ADR 0005).
 
 ## Repository Layout
 
