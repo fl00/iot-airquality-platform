@@ -11,11 +11,13 @@ MQTT packet ─► decode + validate ─┬─► batch ─► InfluxDB (line pr
 | :--- | :--- |
 | `src/main.rs` | Packet validation, batch writer with retry, MQTT loop, shutdown |
 | `src/sink.rs` | InfluxDB write and line-protocol formatting |
-| `src/metrics.rs` | Counters, AQI level, HTTP endpoint |
+| `src/metrics.rs` | Counters, AQI level, HTTP server |
 | `src/config.rs` | Environment variables |
 | `src/proto/mod.rs` | Prost bindings of the wire contract (maintained by hand) |
 
-Interfaces (wire contract, InfluxDB schema, stream event) and failure behaviour are specified in the [root README](../README.md#data-contracts). Environment variables are listed [there](../README.md#configuration) as well.
+Interfaces (wire contract, InfluxDB schema, stream event) and failure behaviour are specified in the [root README](../README.md#data-contracts). Environment variables are listed [there](../README.md#configuration) as well; an invalid value stops the service at start-up.
+
+MQTT and InfluxDB are reached in clear text: the TLS features of the MQTT and HTTP clients are deliberately not compiled (V1 talks to local services only, see [ADR 0005](../docs/adr/0005-v1-scope.md)).
 
 ## Validation rules
 
@@ -32,7 +34,6 @@ A packet is dropped, and counted, when any of these holds:
 | :--- | :--- |
 | `/stream` | Server-Sent Events, one JSON object per accepted packet |
 | `/metrics` | Prometheus text format |
-| `/health` | Liveness |
 
 | Metric | Type | Meaning |
 | :--- | :--- | :--- |

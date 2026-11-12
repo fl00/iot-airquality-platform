@@ -17,10 +17,10 @@ Each step must pass before the next one starts.
 | Step | Action | Pass criterion |
 | :--- | :--- | :--- |
 | 1. Software chain | `make test` | `ALL CHECKS PASSED` |
-| 2. Local stack, simulated sensors | `cp .env.example .env`, set the token, `make build && make start` | Three cards on `http://localhost:8000/`, values change every 5 s, history chart fills in |
+| 2. Local stack, simulated sensors | Mosquitto and InfluxDB running; `cp .env.example .env`, set the token, `make build && make start` | Three cards on `http://localhost:8000/`, values change every 5 s, history chart fills in |
 | 3. Host deployment | `make build && sudo ./deploy/deploy-baremetal.sh` | The five services are `active`; dashboard reachable on `http://<host>/` |
-| 4. Node without sensors | `pio run -e esp32dev-mock -t upload` with the host address and MQTT credentials in `secrets.h` | A card with the node's `DEVICE_ID` appears, status "Online" |
-| 5. Wired prototype | Dupont wiring as in [`hardware/README.md`](../hardware/README.md), `pio run -e esp32dev -t upload` | Serial `[TX]` lines show plausible values for every sensor; status goes "Warming up" then "Online" |
+| 4. Node without sensors | `pio run -e esp32dev-mock -t upload` with the host address and MQTT credentials in `secrets.h` | A card with the node's `DEVICE_ID` appears, status "En ligne" |
+| 5. Wired prototype | Dupont wiring as in [`hardware/README.md`](../hardware/README.md), `pio run -e esp32dev -t upload` | Serial `[TX]` lines show plausible values for every sensor; status goes "Préchauffage" then "En ligne" |
 | 6. Fault checks | See section 3 | Each behaves as described |
 
 The carrier PCB is ordered, and the enclosure printed, only after the wired prototype has passed the validation period.
@@ -31,8 +31,8 @@ Run once at commissioning. Expected behaviour is specified in "Behaviour on Fail
 
 | Fault to provoke | Expected observation |
 | :--- | :--- |
-| Unplug one sensor from the node | Status "Degraded" within 20 s; CO2 shown as "—" if the SCD41 is the one unplugged |
-| Power off the node | Status "Offline" after 30 s |
+| Unplug one sensor from the node | Status "Capteur manquant" within 20 s; CO2 shown as "—" if the SCD41 is the one unplugged |
+| Power off the node | Status "Hors ligne" after 30 s |
 | `sudo systemctl stop influxdb` for 5 minutes, then start | `iot_influx_buffered_samples` rises then returns to 0; no gap in the chart |
 | Switch off the Wi-Fi access point for 5 minutes | Serial log shows `flash` then a replay; no gap in the chart afterwards |
 | `sudo systemctl restart iot-ingestor` | At most a few seconds missing in the chart |

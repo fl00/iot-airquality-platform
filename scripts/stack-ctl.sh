@@ -1,19 +1,12 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# IoT Air Quality Platform - local stack controller (used by the Makefile)
-# ==============================================================================
-set -e
+# Local development stack: ingestor + dashboard + simulated sensors, in the background.
+# Used by `make start|stop|restart|status`. Mosquitto and InfluxDB are system services
+# and must already be running (sudo systemctl start mosquitto influxdb).
+set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="${BASE_DIR}/logs"
-
-GREEN='\033[0;32m'
-CYAN='\033[0;36m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m'
-
+INGESTOR_BIN="${BASE_DIR}/ingestor/target/release/iot-airquality-ingestor"
 mkdir -p "${LOG_DIR}"
 
 # Local settings and secrets (INFLUXDB_TOKEN, ...): see .env.example
@@ -21,100 +14,22 @@ if [ -f "${BASE_DIR}/.env" ]; then
     set -a; . "${BASE_DIR}/.env"; set +a
 fi
 
-# ------------------------------------------------------------------------------
-# 📦 INFRASTRUCTURE SERVICES (Mosquitto & InfluxDB)
-# ------------------------------------------------------------------------------
+port_open() { (echo > "/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 
-cmd_start_mosquitto() {
-    echo -e "${CYAN}==> Starting Mosquitto MQTT Broker (:1883)...${NC}"
-    if nc -z 127.0.0.1 1883 2>/dev/null; then
-        echo -e "${GREEN}✔ Mosquitto is already running on port 1883.${NC}"
-        return 0
-    fi
-    if command -v systemctl >/dev/null 2>&1; then
-        sudo systemctl start mosquitto 2>/dev/null || mosquitto -d 2>/dev/null || true
-    else
-        mosquitto -d 2>/dev/null || true
-    fi
-    sleep 0.5
-    if nc -z 127.0.0.1 1883 2>/dev/null; then
-        echo -e "${GREEN}✔ Mosquitto MQTT broker started successfully.${NC}"
-    else
-        echo -e "${RED}✖ Failed to start Mosquitto. Please verify service status or run: sudo systemctl start mosquitto${NC}"
-    fi
+# start_service <name> <command...>: runs in the background, logs to logs/<name>.log
+start_service() {
+    local name="$1"; shift
+    setsid "$@" </dev/null > "${LOG_DIR}/${name}.log" 2>&1 &
+    echo $! > "${LOG_DIR}/${name}.pid"
 }
 
-cmd_stop_mosquitto() {
-    echo -e "${YELLOW}==> Stopping Mosquitto MQTT Broker...${NC}"
-    if command -v systemctl >/dev/null 2>&1; then
-        sudo systemctl stop mosquitto 2>/dev/null || sudo pkill -f mosquitto 2>/dev/null || true
-    else
-        sudo pkill -f mosquitto 2>/dev/null || true
-    fi
-    sleep 0.5
-    if ! nc -z 127.0.0.1 1883 2>/dev/null; then
-        echo -e "${GREEN}✔ Mosquitto stopped.${NC}"
-    else
-        echo -e "${YELLOW}⚠ Mosquitto still responding on port 1883 (may require sudo privileges).${NC}"
-    fi
-}
-
-cmd_start_influxdb() {
-    echo -e "${CYAN}==> Starting InfluxDB Time-Series Engine (:8086)...${NC}"
-    if nc -z 127.0.0.1 8086 2>/dev/null; then
-        echo -e "${GREEN}✔ InfluxDB is already running on port 8086.${NC}"
-        return 0
-    fi
-    if command -v systemctl >/dev/null 2>&1; then
-        sudo systemctl start influxdb 2>/dev/null || sudo systemctl start influxd 2>/dev/null || influxd &
-    else
-        influxd &
-    fi
-    sleep 1.0
-    if nc -z 127.0.0.1 8086 2>/dev/null; then
-        echo -e "${GREEN}✔ InfluxDB engine started successfully.${NC}"
-    else
-        echo -e "${RED}✖ Failed to start InfluxDB. Please verify service status or run: sudo systemctl start influxdb${NC}"
-    fi
-}
-
-cmd_stop_influxdb() {
-    echo -e "${YELLOW}==> Stopping InfluxDB Time-Series Engine...${NC}"
-    if command -v systemctl >/dev/null 2>&1; then
-        sudo systemctl stop influxdb 2>/dev/null || sudo systemctl stop influxd 2>/dev/null || sudo pkill -f influxd 2>/dev/null || true
-    else
-        sudo pkill -f influxd 2>/dev/null || true
-    fi
-    sleep 0.5
-    if ! nc -z 127.0.0.1 8086 2>/dev/null; then
-        echo -e "${GREEN}✔ InfluxDB stopped.${NC}"
-    else
-        echo -e "${YELLOW}⚠ InfluxDB still responding on port 8086 (may require sudo privileges).${NC}"
-    fi
-}
-
-cmd_start_infra() {
-    cmd_start_mosquitto
-    cmd_start_influxdb
-}
-
-cmd_stop_infra() {
-    cmd_stop_influxdb
-    cmd_stop_mosquitto
-}
-
-# ------------------------------------------------------------------------------
-# 🚀 APPLICATION STACK (Rust Ingestor, FastHTML UI, Mock Publisher)
-# ------------------------------------------------------------------------------
-
-# Stops the process recorded in logs/<name>.pid: SIGTERM first (the ingestor then
-# writes its pending batch), SIGKILL only if it is still alive after 5 s.
+# SIGTERM first (the ingestor then writes its pending batch), SIGKILL after 5 s.
 stop_service() {
     local pid_file="${LOG_DIR}/$1.pid" pid
     [ -f "${pid_file}" ] || return 0
-    pid=$(cat "${pid_file}" 2>/dev/null || true)
+    pid=$(cat "${pid_file}")
     rm -f "${pid_file}"
-    [ -n "${pid}" ] && kill "${pid}" 2>/dev/null || return 0
+    kill "${pid}" 2>/dev/null || return 0
     for _ in $(seq 50); do
         kill -0 "${pid}" 2>/dev/null || return 0
         sleep 0.1
@@ -123,168 +38,46 @@ stop_service() {
 }
 
 cmd_stop() {
-    echo -e "${YELLOW}==> Stopping IoT Platform Application Stack...${NC}"
     stop_service mock
     stop_service dashboard
     stop_service ingestor
-    echo -e "${GREEN}✔ All application processes stopped.${NC}"
+    echo "Stack stopped."
 }
 
 cmd_start() {
-    mkdir -p "${LOG_DIR}"
-    if [ -z "${INFLUXDB_TOKEN:-}" ]; then
-        echo -e "${RED}✖ INFLUXDB_TOKEN is not set. Copy .env.example to .env and fill it in.${NC}"
-        exit 1
-    fi
-    echo -e "${CYAN}==> Checking Core Infrastructure (Mosquitto & InfluxDB)...${NC}"
-    if ! nc -z 127.0.0.1 1883 2>/dev/null; then
-        echo -e "${YELLOW}  ⚠ Notice: Mosquitto is stopped. Starting it now...${NC}"
-        cmd_start_mosquitto
-    fi
-    if ! nc -z 127.0.0.1 8086 2>/dev/null; then
-        echo -e "${YELLOW}  ⚠ Notice: InfluxDB is stopped. Starting it now...${NC}"
-        cmd_start_influxdb
-    fi
+    [ -n "${INFLUXDB_TOKEN:-}" ] || { echo "INFLUXDB_TOKEN is not set: copy .env.example to .env and fill it in." >&2; exit 1; }
+    [ -x "${INGESTOR_BIN}" ]     || { echo "Ingestor not built: run 'make build'." >&2; exit 1; }
+    port_open 1883 || { echo "Mosquitto is not reachable on port 1883 (sudo systemctl start mosquitto)." >&2; exit 1; }
+    port_open 8086 || { echo "InfluxDB is not reachable on port 8086 (sudo systemctl start influxdb)." >&2; exit 1; }
 
-    # Build ingestor binary if not already built
-    if [ ! -f "${BASE_DIR}/ingestor/target/release/iot-airquality-ingestor" ]; then
-        echo -e "${CYAN}==> Building release binary for Rust Ingestor...${NC}"
-        (cd "${BASE_DIR}/ingestor" && cargo build --release)
-    fi
-
-    # Stop instances started by a previous `make start`
     cmd_stop >/dev/null
+    start_service ingestor "${INGESTOR_BIN}"
+    start_service dashboard python3 -m uvicorn --app-dir "${BASE_DIR}/dashboard" main:app --host 127.0.0.1 --port 8000
+    start_service mock python3 "${BASE_DIR}/firmware/tools/mock_publisher.py"
 
-    # 1. Start Rust Ingestor
-    echo -e "${CYAN}==> Starting Rust Ingestion Hub (:9100)...${NC}"
-    RUST_LOG="info,iot_airquality_ingestor=debug" \
-    setsid "${BASE_DIR}/ingestor/target/release/iot-airquality-ingestor" </dev/null > "${LOG_DIR}/ingestor.log" 2>&1 &
-    PID_INGEST=$!
-    echo $PID_INGEST > "${LOG_DIR}/ingestor.pid"
-
-    # 2. Start FastHTML Dashboard UI
-    echo -e "${CYAN}==> Starting FastHTML Dashboard UI (:8000)...${NC}"
-    PYTHONPATH="${BASE_DIR}/dashboard" \
-    setsid python3 -m uvicorn --app-dir "${BASE_DIR}/dashboard" main:app --host 127.0.0.1 --port 8000 --workers 1 --loop uvloop </dev/null > "${LOG_DIR}/dashboard.log" 2>&1 &
-    PID_DASH=$!
-    echo $PID_DASH > "${LOG_DIR}/dashboard.pid"
-
-    # 3. Start Mock Telemetry Publisher
-    echo -e "${CYAN}==> Starting Hardware Mock Publisher...${NC}"
-    setsid python3 "${BASE_DIR}/firmware/tools/mock_publisher.py" </dev/null > "${LOG_DIR}/mock.log" 2>&1 &
-    PID_MOCK=$!
-    echo $PID_MOCK > "${LOG_DIR}/mock.pid"
-
-    # Wait for ready state
-    sleep 1.2
-
-    echo -e "\n${GREEN}==============================================================================${NC}"
-    echo -e "${GREEN}✔ Platform stack successfully started in background!                        ${NC}"
-    echo -e "${GREEN}==============================================================================${NC}"
-    echo -e "  🌐 Dashboard UI:       ${CYAN}http://localhost:8000/${NC}"
-    echo -e "  📊 Prometheus Metrics: ${CYAN}http://localhost:9100/metrics${NC}"
-    echo -e "  ⚡ Live SSE Stream:    ${CYAN}http://localhost:9100/stream${NC}"
-    echo -e "  📜 Logs Streaming:     Run ${YELLOW}make logs${NC} or tail logs/*.log"
-    echo -e "  🛑 Stop Stack:         Run ${YELLOW}make stop${NC}\n"
-}
-
-cmd_start_all() {
-    cmd_start_infra
-    cmd_start
-}
-
-cmd_stop_all() {
-    cmd_stop
-    cmd_stop_infra
+    echo "Stack started."
+    echo "  Dashboard        http://localhost:8000/"
+    echo "  Ingestor metrics http://localhost:9100/metrics"
+    echo "  Logs             make logs"
 }
 
 cmd_status() {
-    echo -e "\n${CYAN}==============================================================================${NC}"
-    echo -e "${CYAN}   IoT Air Quality Platform - Runtime Health & Service Status                 ${NC}"
-    echo -e "${CYAN}==============================================================================${NC}\n"
-    printf "  %-24s %-12s %-10s %s\n" "SERVICE" "STATUS" "PORT/PID" "DETAILS"
-    echo "  ----------------------------------------------------------------------------"
-
-    # Mosquitto
-    if nc -z 127.0.0.1 1883 2>/dev/null; then
-        printf "  ${GREEN}%-24s${NC} ${GREEN}%-12s${NC} %-10s %s\n" "Mosquitto MQTT Broker" "RUNNING" ":1883" "MQTT Wire Broker"
+    local name port
+    for entry in "Mosquitto:1883" "InfluxDB:8086" "Ingestor:9100" "Dashboard:8000"; do
+        name="${entry%%:*}"; port="${entry##*:}"
+        if port_open "${port}"; then echo "  ${name} (port ${port}): running"; else echo "  ${name} (port ${port}): stopped"; fi
+    done
+    if [ -f "${LOG_DIR}/mock.pid" ] && kill -0 "$(cat "${LOG_DIR}/mock.pid")" 2>/dev/null; then
+        echo "  Simulated sensors: running"
     else
-        printf "  ${RED}%-24s${NC} ${RED}%-12s${NC} %-10s %s\n" "Mosquitto MQTT Broker" "STOPPED" ":1883" "TCP port unreachable"
+        echo "  Simulated sensors: stopped"
     fi
-
-    # InfluxDB
-    if nc -z 127.0.0.1 8086 2>/dev/null; then
-        printf "  ${GREEN}%-24s${NC} ${GREEN}%-12s${NC} %-10s %s\n" "InfluxDB Time-Series" "RUNNING" ":8086" "Time-Series Engine"
-    else
-        printf "  ${RED}%-24s${NC} ${RED}%-12s${NC} %-10s %s\n" "InfluxDB Time-Series" "STOPPED" ":8086" "HTTP port unreachable"
-    fi
-
-    # Rust Ingestor
-    if nc -z 127.0.0.1 9100 2>/dev/null; then
-        PID=$(fuser 9100/tcp 2>/dev/null | tr -d ' ' || echo "OK")
-        printf "  ${GREEN}%-24s${NC} ${GREEN}%-12s${NC} %-10s %s\n" "Rust Telemetry Ingestor" "RUNNING" ":9100" "PID: ${PID} "
-    else
-        printf "  ${RED}%-24s${NC} ${RED}%-12s${NC} %-10s %s\n" "Rust Telemetry Ingestor" "STOPPED" ":9100" "Inactive"
-    fi
-
-    # FastHTML Dashboard UI
-    if nc -z 127.0.0.1 8000 2>/dev/null; then
-        PID=$(fuser 8000/tcp 2>/dev/null | tr -d ' ' || echo "OK")
-        printf "  ${GREEN}%-24s${NC} ${GREEN}%-12s${NC} %-10s %s\n" "FastHTML Dashboard UI" "RUNNING" ":8000" "PID: ${PID} (Uvicorn)"
-    else
-        printf "  ${RED}%-24s${NC} ${RED}%-12s${NC} %-10s %s\n" "FastHTML Dashboard UI" "STOPPED" ":8000" "Inactive"
-    fi
-
-    # Mock Publisher
-    if [ -f "${LOG_DIR}/mock.pid" ] && kill -0 "$(cat "${LOG_DIR}/mock.pid" 2>/dev/null)" 2>/dev/null; then
-        PID=$(cat "${LOG_DIR}/mock.pid")
-        printf "  ${GREEN}%-24s${NC} ${GREEN}%-12s${NC} %-10s %s\n" "Mock Telemetry Publisher" "RUNNING" "PID: ${PID}" "Emitting 5s Protobuf"
-    else
-        printf "  ${YELLOW}%-24s${NC} ${YELLOW}%-12s${NC} %-10s %s\n" "Mock Telemetry Publisher" "IDLE" "-" "No active simulation"
-    fi
-    echo ""
 }
 
-case "${1:-status}" in
-    start|up)
-        cmd_start
-        ;;
-    stop|down)
-        cmd_stop
-        ;;
-    restart)
-        cmd_stop
-        cmd_start
-        ;;
-    status)
-        cmd_status
-        ;;
-    start-mosquitto)
-        cmd_start_mosquitto
-        ;;
-    stop-mosquitto)
-        cmd_stop_mosquitto
-        ;;
-    start-influxdb)
-        cmd_start_influxdb
-        ;;
-    stop-influxdb)
-        cmd_stop_influxdb
-        ;;
-    start-infra)
-        cmd_start_infra
-        ;;
-    stop-infra)
-        cmd_stop_infra
-        ;;
-    start-all)
-        cmd_start_all
-        ;;
-    stop-all)
-        cmd_stop_all
-        ;;
-    *)
-        echo "Usage: $0 {start|stop|restart|status|start-mosquitto|stop-mosquitto|start-influxdb|stop-influxdb|start-infra|stop-infra|start-all|stop-all}"
-        exit 1
-        ;;
+case "${1:-}" in
+    start)   cmd_start ;;
+    stop)    cmd_stop ;;
+    restart) cmd_start ;;
+    status)  cmd_status ;;
+    *)       echo "Usage: $0 {start|stop|restart|status}" >&2; exit 1 ;;
 esac

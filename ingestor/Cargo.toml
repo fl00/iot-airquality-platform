@@ -6,12 +6,12 @@ description = "MQTT (Protobuf) to InfluxDB ingestion service for the IoT Air Qua
 
 [dependencies]
 tokio = { version = "1.38", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal"] }
-rumqttc = { version = "0.24", default-features = false, features = ["use-rustls"] }
+# No TLS feature on purpose: V1 talks to local services in clear text (ADR 0005).
+rumqttc = { version = "0.24", default-features = false }
 prost = "0.13"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.12", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 

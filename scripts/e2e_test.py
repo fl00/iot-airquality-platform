@@ -20,6 +20,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -37,6 +38,7 @@ class FakeInflux(http.server.BaseHTTPRequestHandler):
 
     writes = []
     failed_once = False
+    history_rows = None  # rows returned to the dashboard history query
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
@@ -52,7 +54,8 @@ class FakeInflux(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(b'{"results":[{}]}')
+        result = {"series": [{"values": FakeInflux.history_rows}]} if FakeInflux.history_rows else {}
+        self.wfile.write(json.dumps({"results": [result]}).encode())
 
     def log_message(self, *args):
         pass
@@ -172,9 +175,19 @@ def main():
         # --- 5. Dashboard ---------------------------------------------------------------
         wait_for(lambda: json.loads(http_get(DASHBOARD_PORT, "/health"))["sensors_active"] == 1, "dashboard state")
         home = http_get(DASHBOARD_PORT, "/")
-        assert DEVICE in home and "Degraded" in home, "sensor card with firmware status expected"
-        assert http_get(DASHBOARD_PORT, f"/api/v1/sensor/{DEVICE}/history") == "[[],[],[],[],[]]"
-        print("  ok  dashboard shows the sensor and its status; empty history stays empty")
+        assert DEVICE in home and "Capteur manquant" in home, "sensor card with firmware status expected"
+        assert "showChart" in http_get(DASHBOARD_PORT, f"/sensor/{DEVICE}"), "detail page must draw the chart"
+        try:
+            http_get(DASHBOARD_PORT, f"/api/v1/sensor/{DEVICE}/history?range=bogus")
+            raise AssertionError("unknown range must be rejected")
+        except urllib.error.HTTPError as e:
+            assert e.code == 400
+        history_url = f"/api/v1/sensor/{DEVICE}/history?range=24h"
+        assert http_get(DASHBOARD_PORT, history_url) == "[[],[],[],[],[]]"
+        FakeInflux.history_rows = [[1794000000, 650.126, 21.5, 45.0, None], [1794000600, None, 21.6, 45.1, 3.0]]
+        assert json.loads(http_get(DASHBOARD_PORT, history_url)) == [
+            [1794000000, 1794000600], [650.13, None], [21.5, 21.6], [45.0, 45.1], [None, 3.0]]
+        print("  ok  dashboard shows the sensor and its status; history is columnar, empty stays empty")
 
         # --- 6. SIGTERM flushes the pending batch --------------------------------------
         publish(DEVICE, packet(DEVICE, co2=700))

@@ -18,7 +18,6 @@
 #include <LittleFS.h>
 #include <time.h>
 #include <esp_task_wdt.h>
-#include <esp_idf_version.h>
 
 #include "config.h"
 #include "secrets.h"
@@ -182,6 +181,8 @@ static uint32_t       s_bme_last_ok_ms = 0;
 static uint32_t       s_bsec_last_save_ms = 0;
 static bool           s_bsec_saved_once = false;
 static uint8_t        s_bsec_state[BSEC_MAX_STATE_BLOB_SIZE];
+
+static inline float bsec_pressure_hpa() { return s_bsec.pressure / 100.0f; }  // BSEC reports Pa
 
 static Pms7003Parser  s_pms_parser;
 static PmsAccumulator s_pms_acc;
@@ -348,8 +349,7 @@ static void sensors_poll() {
     if (s_bme_present && s_bsec.run()) {
         s_bme_last_ok_ms = now;
 #if HAS_SCD41
-        float p = s_bsec.pressure;
-        scd_sync_pressure(now, (p > 2000.0f) ? p / 100.0f : p);
+        scd_sync_pressure(now, bsec_pressure_hpa());
 #endif
         // Persist the calibration the first time BSEC reaches full accuracy, then every 6 h
         bool first_full_accuracy = !s_bsec_saved_once && s_bsec.iaqAccuracy >= 3;
@@ -367,10 +367,9 @@ static void sensors_snapshot(SensorSnapshot *out) {
 
     out->bme_ok = s_bme_present && s_bme_last_ok_ms != 0 && (now - s_bme_last_ok_ms) < BME_STALE_MS;
     if (out->bme_ok) {
-        float p = s_bsec.pressure;
         out->temperature_c   = s_bsec.temperature;
         out->humidity_pct    = s_bsec.humidity;
-        out->pressure_hpa    = (p > 2000.0f) ? p / 100.0f : p;  // BSEC reports Pa
+        out->pressure_hpa    = bsec_pressure_hpa();
         out->eco2_ppm        = s_bsec.co2Equivalent;
         out->bvoc_ppm        = s_bsec.breathVocEquivalent;
         out->static_iaq      = s_bsec.staticIaq;
@@ -472,17 +471,8 @@ void setup() {
     Serial.println(F("   Air Quality Firmware v1.2 - BME680+SCD41+PMS7003"));
     Serial.println(F("=================================================="));
 
-    // 1. Task Watchdog Timer (API differs between ESP-IDF 4.x and 5.x)
-#if ESP_IDF_VERSION_MAJOR >= 5
-    esp_task_wdt_config_t twdt_config = {
-        .timeout_ms = TWDT_TIMEOUT_SECONDS * 1000,
-        .idle_core_mask = 0,
-        .trigger_panic = true,
-    };
-    esp_task_wdt_reconfigure(&twdt_config);
-#else
+    // 1. Task Watchdog Timer (ESP-IDF 4.4 API, the version pinned in platformio.ini)
     esp_task_wdt_init(TWDT_TIMEOUT_SECONDS, true);
-#endif
     esp_task_wdt_add(NULL);
 
     // 2. Flash storage, then sensors (BSEC state is read from LittleFS)

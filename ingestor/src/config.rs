@@ -1,13 +1,12 @@
-//! Runtime configuration loader for the IoT Air Quality Ingestor
+//! Runtime configuration, read from environment variables (see the root README).
 
 use std::env;
+use std::str::FromStr;
 
 #[derive(Clone, Debug)]
 pub struct AppConfig {
     pub mqtt_host: String,
     pub mqtt_port: u16,
-    pub mqtt_client_id: String,
-    pub mqtt_topic: String,
     pub mqtt_user: Option<String>,
     pub mqtt_password: Option<String>,
     pub influx_url: String,
@@ -16,49 +15,37 @@ pub struct AppConfig {
     pub influx_token: String,
     pub batch_size: usize,
     pub flush_interval_secs: u64,
-    pub metrics_port: u16,
-    pub metrics_enabled: bool,
+    pub http_port: u16,
+}
+
+fn non_empty(key: &str) -> Option<String> {
+    env::var(key).ok().filter(|v| !v.is_empty())
+}
+
+/// Value of `key`, or `default` when unset. An invalid value stops the service:
+/// silently falling back to the default would hide the mistake.
+fn env_or<T: FromStr>(key: &str, default: T) -> T {
+    match non_empty(key) {
+        Some(raw) => raw.parse().unwrap_or_else(|_| panic!("{key}: invalid value '{raw}'")),
+        None => default,
+    }
 }
 
 impl AppConfig {
     pub fn from_env() -> Self {
         Self {
-            mqtt_host: env::var("MQTT_BROKER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
-            mqtt_port: env::var("MQTT_BROKER_PORT")
-                .ok()
-                .and_then(|p| p.parse().ok())
-                .unwrap_or(1883),
-            mqtt_client_id: env::var("MQTT_CLIENT_ID")
-                .unwrap_or_else(|_| "iot-airquality-ingestor-rust".to_string()),
-            mqtt_topic: env::var("MQTT_TOPIC")
-                .unwrap_or_else(|_| "sensors/+/airquality".to_string()),
-            mqtt_user: env::var("MQTT_USER").ok().filter(|v| !v.is_empty()),
-            mqtt_password: env::var("MQTT_PASSWORD").ok().filter(|v| !v.is_empty()),
-            influx_url: env::var("INFLUXDB_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:8086".to_string()),
-            influx_org: env::var("INFLUXDB_ORG").unwrap_or_else(|_| "baremetal-iot".to_string()),
-            influx_bucket: env::var("INFLUXDB_BUCKET")
-                .unwrap_or_else(|_| "airquality".to_string()),
-            // No default on purpose: a wrong token must fail at start-up, not at the first write.
-            influx_token: env::var("INFLUXDB_TOKEN")
-                .ok()
-                .filter(|v| !v.is_empty())
-                .expect("INFLUXDB_TOKEN is not set (see .env.example)"),
-            batch_size: env::var("INGESTOR_BATCH_SIZE")
-                .ok()
-                .and_then(|b| b.parse().ok())
-                .unwrap_or(12),
-            flush_interval_secs: env::var("INGESTOR_FLUSH_INTERVAL_SECS")
-                .ok()
-                .and_then(|t| t.parse().ok())
-                .unwrap_or(30),
-            metrics_port: env::var("METRICS_PORT")
-                .ok()
-                .and_then(|p| p.parse().ok())
-                .unwrap_or(9100),
-            metrics_enabled: env::var("METRICS_ENABLED")
-                .map(|v| v != "false" && v != "0")
-                .unwrap_or(true),
+            mqtt_host: env_or("MQTT_BROKER_HOST", "127.0.0.1".to_string()),
+            mqtt_port: env_or("MQTT_BROKER_PORT", 1883),
+            mqtt_user: non_empty("MQTT_USER"),
+            mqtt_password: non_empty("MQTT_PASSWORD"),
+            influx_url: env_or("INFLUXDB_URL", "http://127.0.0.1:8086".to_string()),
+            influx_org: env_or("INFLUXDB_ORG", "baremetal-iot".to_string()),
+            influx_bucket: env_or("INFLUXDB_BUCKET", "airquality".to_string()),
+            // No default on purpose: a missing token must fail at start-up, not at the first write.
+            influx_token: non_empty("INFLUXDB_TOKEN").expect("INFLUXDB_TOKEN is not set (see .env.example)"),
+            batch_size: env_or("INGESTOR_BATCH_SIZE", 12),
+            flush_interval_secs: env_or("INGESTOR_FLUSH_INTERVAL_SECS", 30),
+            http_port: env_or("METRICS_PORT", 9100),
         }
     }
 }

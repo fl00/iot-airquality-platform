@@ -14,6 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use prost::Message;
 use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS};
+use tokio::net::TcpListener;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{interval, MissedTickBehavior};
@@ -24,6 +25,9 @@ use crate::config::AppConfig;
 use crate::metrics::IngestorMetrics;
 use crate::proto::{AirQualityPacket, FullSample};
 use crate::sink::{InfluxDbSink, MetricSample, WriteError};
+
+const MQTT_TOPIC: &str = "sensors/+/airquality";
+const MQTT_CLIENT_ID: &str = "iot-airquality-ingestor";
 
 /// Samples kept in memory while InfluxDB is unreachable (about 7 h for one sensor at 5 s).
 const MAX_BUFFERED_SAMPLES: usize = 5000;
@@ -155,7 +159,7 @@ async fn run_batch_writer(
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .with(tracing_subscriber::fmt::layer().compact())
@@ -164,16 +168,15 @@ async fn main() -> anyhow::Result<()> {
     let config = AppConfig::from_env();
     info!(
         "Starting: MQTT={}:{} topic='{}' InfluxDB={} http=127.0.0.1:{}",
-        config.mqtt_host, config.mqtt_port, config.mqtt_topic, config.influx_url, config.metrics_port
+        config.mqtt_host, config.mqtt_port, MQTT_TOPIC, config.influx_url, config.http_port
     );
 
     let metrics = IngestorMetrics::new();
     let (stream_tx, _) = broadcast::channel::<Arc<String>>(512);
-    if config.metrics_enabled {
-        // Local consumers only: the dashboard runs on the same host.
-        let addr = format!("127.0.0.1:{}", config.metrics_port);
-        tokio::spawn(metrics::run_metrics_server(metrics.clone(), stream_tx.clone(), addr));
-    }
+    // Local consumers only: the dashboard runs on the same host. A busy port stops the
+    // service, since the dashboard would otherwise stay empty without explanation.
+    let listener = TcpListener::bind(("127.0.0.1", config.http_port)).await?;
+    tokio::spawn(metrics::run_http_server(listener, metrics.clone(), stream_tx.clone()));
 
     // The channel decouples MQTT reception from InfluxDB I/O.
     let (sample_tx, sample_rx) = mpsc::channel::<MetricSample>(1024);
@@ -185,7 +188,7 @@ async fn main() -> anyhow::Result<()> {
         config.flush_interval_secs,
     ));
 
-    let mut mqtt_options = MqttOptions::new(&config.mqtt_client_id, &config.mqtt_host, config.mqtt_port);
+    let mut mqtt_options = MqttOptions::new(MQTT_CLIENT_ID, &config.mqtt_host, config.mqtt_port);
     mqtt_options.set_keep_alive(Duration::from_secs(15));
     mqtt_options.set_clean_session(true);
     if let (Some(user), Some(password)) = (&config.mqtt_user, &config.mqtt_password) {
@@ -211,8 +214,8 @@ async fn main() -> anyhow::Result<()> {
             event = eventloop.poll() => match event {
                 Ok(Event::Incoming(Packet::ConnAck(_))) => {
                     // Sessions are clean: the subscription must be renewed after every reconnect.
-                    match mqtt_client.subscribe(&config.mqtt_topic, QoS::AtLeastOnce).await {
-                        Ok(()) => info!("[MQTT] Connected; subscribed to '{}'.", config.mqtt_topic),
+                    match mqtt_client.subscribe(MQTT_TOPIC, QoS::AtLeastOnce).await {
+                        Ok(()) => info!("[MQTT] Connected; subscribed to '{}'.", MQTT_TOPIC),
                         Err(e) => error!("[MQTT] Subscribe failed: {}", e),
                     }
                 }

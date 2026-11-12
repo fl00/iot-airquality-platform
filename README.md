@@ -41,7 +41,7 @@ Indoor air quality monitoring on a single small host (Raspberry Pi, home server)
 | Broker | Mosquitto | MQTT transport, authenticated |
 | Ingestor | Rust, Tokio, Prost | Only MQTT subscriber. Validates packets, writes to InfluxDB in batches, computes the AQI level, publishes the live event stream and Prometheus metrics |
 | Storage | InfluxDB 2 | Time series, 90-day retention |
-| Dashboard | Python, FastHTML, HTMX, uPlot | Live cards and history charts. Reads the ingestor stream and InfluxDB; has no MQTT or Protobuf dependency |
+| Dashboard | Python, FastHTML, HTMX, uPlot | Live cards and history charts (interface in French). Reads the ingestor stream and InfluxDB; has no MQTT or Protobuf dependency |
 | Reverse proxy | Caddy | Single HTTP entry point |
 
 Only two ports are reachable from the network: 1883 (sensors) and 80 (browsers). Everything else listens on `127.0.0.1`.
@@ -87,7 +87,7 @@ Measurement `air_quality`, tag `device_id`, timestamp in nanoseconds.
 
 `aqi_level` (1 excellent to 5 bad) is the worst of the CO2, PM2.5 and VOC sub-levels. It is computed in one place, `compute_aqi_level` in [`ingestor/src/metrics.rs`](ingestor/src/metrics.rs); thresholds and their rationale are in the [air quality guide](docs/AIR_QUALITY_GUIDE_EN.md).
 
-The same port serves `GET /metrics` (Prometheus text format) and `GET /health`.
+The same port serves `GET /metrics` (Prometheus text format).
 
 ## Behaviour on Failure
 
@@ -95,8 +95,8 @@ The same port serves `GET /metrics` (Prometheus text format) and `GET /health`.
 | :--- | :--- | :--- |
 | Node loses Wi-Fi or the broker | Packets are appended to a 512 KB flash queue (about 11 h) and replayed on reconnection | None up to 11 h; beyond, the queue is cleared and restarts |
 | Node has no synchronised clock and is offline | Packets are not queued (they could not be dated on replay) | Yes, until NTP has synchronised once |
-| A sensor is disconnected | Its fields are 0, `status` = degraded; CO2 and pressure are not stored; the dashboard shows "Degraded" | That sensor's values only |
-| Node stops publishing | Dashboard shows "Offline" after 30 s | — |
+| A sensor is disconnected | Its fields are 0, `status` = degraded; CO2 and pressure are not stored; the dashboard shows "Capteur manquant" | That sensor's values only |
+| Node stops publishing | Dashboard shows "Hors ligne" after 30 s | — |
 | Invalid packet (bad id, topic mismatch, non-finite value, undecodable) | Dropped and counted in `iot_packets_dropped_total` | That packet |
 | InfluxDB rejects a batch (malformed, or older than the retention period) | Batch dropped and logged; not retried | That batch |
 | InfluxDB unreachable or failing | Up to 5,000 samples are kept in memory (about 7 h for one node) and retried every 30 s | None up to the buffer size; then the oldest samples |
@@ -117,7 +117,7 @@ The same port serves `GET /metrics` (Prometheus text format) and `GET /health`.
 cp .env.example .env                               # then set INFLUXDB_TOKEN
 pip install -r dashboard/requirements.txt paho-mqtt protobuf
 make build                                         # release build of the ingestor
-make start                                         # ingestor + dashboard + 3 simulated sensors
+make start                                         # ingestor + dashboard + 3 simulated sensors (Mosquitto and InfluxDB must be running)
 ```
 
 Open `http://localhost:8000/`. `make status`, `make logs` and `make stop` manage the stack; `make help` lists every target.
@@ -142,7 +142,7 @@ See [`deploy/README.md`](deploy/README.md).
 
 ## Configuration
 
-All settings are environment variables. Locally they are read from `.env`; in production from `/etc/iot-airquality/env`.
+All settings are environment variables. An invalid value stops the service at start-up. Locally they are read from `.env`; in production from `/etc/iot-airquality/env`.
 
 | Variable | Default | Used by | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -152,7 +152,6 @@ All settings are environment variables. Locally they are read from `.env`; in pr
 | `INFLUXDB_BUCKET` | `airquality` | ingestor, dashboard | |
 | `MQTT_BROKER_HOST` / `MQTT_BROKER_PORT` | `127.0.0.1` / `1883` | ingestor, simulator | |
 | `MQTT_USER` / `MQTT_PASSWORD` | unset | ingestor, simulator | Required when the broker enforces authentication (always in production) |
-| `MQTT_TOPIC` | `sensors/+/airquality` | ingestor | |
 | `INGESTOR_BATCH_SIZE` | `12` | ingestor | Samples per InfluxDB write |
 | `INGESTOR_FLUSH_INTERVAL_SECS` | `30` | ingestor | Maximum delay before a write, and retry period |
 | `METRICS_PORT` | `9100` | ingestor, dashboard | Ingestor HTTP port on `127.0.0.1` |
@@ -168,10 +167,10 @@ make test
 | Check | Covers |
 | :--- | :--- |
 | Ingestor unit tests | Packet validation, line protocol, AQI thresholds, stream event |
-| End-to-end test (`scripts/e2e_test.py`) | A packet published over MQTT reaches the InfluxDB write and the dashboard; rejected packets; retry after a failed write; flush on SIGTERM. InfluxDB is replaced by a local recorder, so no database is needed |
+| End-to-end test (`scripts/e2e_test.py`) | A packet published over MQTT reaches the InfluxDB write and the dashboard; history conversion; rejected packets; retry after a failed write; flush on SIGTERM. InfluxDB is replaced by a local recorder, so no database is needed |
 | Firmware host test (`firmware/test_host/run.sh`) | Sensor parsers and Protobuf encoding, decoded by the Python bindings. Runs when `NANOPB_DIR` is set |
 
-Not covered by automation: the firmware on real hardware, and a real InfluxDB instance. Both are part of the [V1 validation](docs/V1_VALIDATION.md).
+Not covered by automation: the firmware on real hardware, a real InfluxDB instance, and the browser side (JavaScript is only syntax-checked). Both are part of the [V1 validation](docs/V1_VALIDATION.md).
 
 ## Security
 

@@ -49,7 +49,15 @@ Thresholds existed in Rust, Python and JavaScript, and the Python copy ignored V
 
 InfluxDB 2 OSS and the kernel run with their defaults. The previous InfluxDB configuration file mixed InfluxDB 3 options with a v2 installation, and the kernel tuning targeted connection volumes V1 does not have. Supersedes the "InfluxDB v3" choice of ADR 0001: V1 uses InfluxDB 2 and InfluxQL.
 
-### 6. Secrets outside the repository, authenticated broker
+### 6. History chart shows stored data only
+
+Live samples were appended to the history curve in the browser. The two have different resolutions, and packets replayed after an outage arrive out of order, which corrupted the chart. The chart now shows what InfluxDB holds and reloads every minute; live values stay on the cards.
+
+### 7. Plain static files, no TLS code
+
+Content-hashed URLs, one-year caching, inlined CSS and lazy script loading are replaced by ordinary `<link>` and `<script>` tags: the page is three small files on a LAN. The TLS features of the MQTT and HTTP clients are not compiled, since V1 only talks to local services.
+
+### 8. Secrets outside the repository, authenticated broker
 
 Tokens and passwords are generated at deployment. Services refuse to start without a token.
 
@@ -72,7 +80,7 @@ To be decided from the V1 feedback log ([V1_VALIDATION.md](../V1_VALIDATION.md))
 
 ## Consequences
 
-- About 500 lines fewer in the ingestor and dashboard, unit tests included, and four dependencies removed (`async-trait`, `thiserror`, `prost-types`, `prost-build`).
+- The ingestor and dashboard are about half their previous size, unit tests included, with fewer dependencies (no TLS stack, no `async-trait`, `thiserror`, `anyhow`, `prost-types`, `prost-build`).
 - Every interface has one definition; see "Data Contracts" in the root README.
 - Bandwidth and browser CPU are higher than the theoretical optimum, by amounts that do not matter at V1 load.
 - Resource budgets quoted in earlier ADRs are targets, not measurements. Real figures are collected during the V1 validation.
