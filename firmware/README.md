@@ -21,6 +21,7 @@ Every 5 s the node publishes one `AirQualityPacket` on `sensors/<DEVICE_ID>/airq
 - **Clock.** NTP, UTC. Until synchronised, packets carry timestamp 0 and the ingestor uses the reception time.
 - **Status.** `WARMING_UP` during the first 30 s (PMS7003) and until BSEC has calibrated (about 5 min); `DEGRADED` when a sensor is silent (its fields are 0); `FAULT` when all are.
 - **Watchdog.** The node resets if the main loop stalls for 15 s.
+- **Wi-Fi recovery.** The node reboots after 15 minutes without Wi-Fi, because the automatic reconnection of the ESP32 can stay stuck. The offline queue, the clock and the BSEC calibration survive the reboot.
 - **Memory.** Buffers are statically allocated; nothing is allocated on the heap in the main loop.
 
 ## Build

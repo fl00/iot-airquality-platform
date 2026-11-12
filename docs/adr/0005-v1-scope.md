@@ -74,7 +74,7 @@ To be decided from the V1 feedback log ([V1_VALIDATION.md](../V1_VALIDATION.md))
 | Persistent broker session, QoS 1 from the node | Packets are lost during ingestor restarts in practice | — |
 | Remote access through a private overlay network (Tailscale or an open-source equivalent such as WireGuard or Headscale) | Access from outside the LAN, or a cloud host, is needed | No public port; the sensor nodes stay on the host's LAN, or a router carries the tunnel |
 | TLS for MQTT and HTTP, dashboard login | Public exposure is required and an overlay network is not enough | Certificates on the node |
-| Alerting (offline node, threshold exceeded) | Requested from V1 use | — |
+| Alerts on air quality thresholds | Requested from V1 use | V1 only alerts on platform health (daily report) |
 | PMS7003 duty cycling | Sensor lifetime becomes a concern | Warm-up handling in the firmware |
 | Generated Nanopb and Prost bindings in CI | The contract changes more than occasionally | Generators installed in CI |
 

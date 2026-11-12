@@ -48,6 +48,8 @@ A packet is dropped, and counted, when any of these holds:
 | `iot_influx_buffered_samples` | gauge | Samples waiting in memory; above 0 for long means InfluxDB is failing |
 | `iot_sensor_last_seen_seconds{device_id}` | gauge | Unix time of the last accepted packet per node |
 
+Counters restart at zero with the service. The daily health report (`deploy/health-report.py`) records them in a CSV file.
+
 ## Build, run, test
 
 ```bash

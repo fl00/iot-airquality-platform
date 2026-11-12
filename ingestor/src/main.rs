@@ -80,6 +80,7 @@ fn parse_packet(topic: &str, payload: &[u8], metrics: &IngestorMetrics) -> Resul
     Ok(MetricSample {
         device_id: packet.device_id,
         timestamp_ns: timestamp_sec * 1_000_000_000,
+        sequence_number: packet.sequence_number,
         co2_ppm: full.co2_ppm,
         temperature_celsius: full.temperature_celsius,
         humidity_percent: full.humidity_percent,

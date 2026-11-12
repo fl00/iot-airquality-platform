@@ -12,6 +12,8 @@ use crate::config::AppConfig;
 pub struct MetricSample {
     pub device_id: String,
     pub timestamp_ns: u64,
+    /// Packet counter of the node; restarts at 1 after a node reboot.
+    pub sequence_number: u32,
     pub co2_ppm: u32,
     pub temperature_celsius: f32,
     pub humidity_percent: f32,
@@ -88,7 +90,7 @@ impl InfluxDbSink {
 }
 
 /// One line per sample:
-/// `air_quality,device_id=<id> co2=650i,temperature=22.45,...,status=0i <timestamp_ns>`
+/// `air_quality,device_id=<id> co2=650i,temperature=22.45,...,status=0i,seq=42i <timestamp_ns>`
 ///
 /// A node reports 0 for a missing sensor. 0 ppm CO2 and 0 hPa cannot be real
 /// measurements, so these two fields are omitted instead of polluting the averages.
@@ -105,7 +107,7 @@ pub fn format_line_protocol(samples: &[MetricSample]) -> String {
         }
         let _ = writeln!(
             out,
-            "temperature={:.2},humidity={:.2},pm25={:.2},pm10={:.2},tvoc={:.2},battery_mv={}i,rssi={}i,status={}i {}",
+            "temperature={:.2},humidity={:.2},pm25={:.2},pm10={:.2},tvoc={:.2},battery_mv={}i,rssi={}i,status={}i,seq={}i {}",
             s.temperature_celsius,
             s.humidity_percent,
             s.pm25_ug_m3,
@@ -114,6 +116,7 @@ pub fn format_line_protocol(samples: &[MetricSample]) -> String {
             s.battery_millivolts,
             s.rssi_dbm,
             s.status,
+            s.sequence_number,
             s.timestamp_ns
         );
     }
@@ -128,6 +131,7 @@ mod tests {
         MetricSample {
             device_id: "kitchen".into(),
             timestamp_ns: 1_794_000_000_000_000_000,
+            sequence_number: 42,
             co2_ppm: 650,
             temperature_celsius: 22.456,
             humidity_percent: 48.2,
@@ -146,7 +150,7 @@ mod tests {
         assert_eq!(
             format_line_protocol(&[sample()]),
             "air_quality,device_id=kitchen co2=650i,pressure=1013.25,temperature=22.46,humidity=48.20,\
-             pm25=8.10,pm10=12.00,tvoc=500.00,battery_mv=0i,rssi=-65i,status=0i 1794000000000000000\n"
+             pm25=8.10,pm10=12.00,tvoc=500.00,battery_mv=0i,rssi=-65i,status=0i,seq=42i 1794000000000000000\n"
         );
     }
 

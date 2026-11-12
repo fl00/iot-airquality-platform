@@ -13,6 +13,7 @@ Indoor air quality monitoring on a single small host (Raspberry Pi, home server)
 - [Behaviour on Failure](#behaviour-on-failure)
 - [Getting Started](#getting-started)
 - [Configuration](#configuration)
+- [Monitoring](#monitoring)
 - [Tests](#tests)
 - [Security](#security)
 - [Known Limits of V1](#known-limits-of-v1)
@@ -73,13 +74,14 @@ Measurement `air_quality`, tag `device_id`, timestamp in nanoseconds.
 | `battery_mv` | integer | mV | 0 = mains powered |
 | `rssi` | integer | dBm | |
 | `status` | integer | | `SensorStatus` value: 0 OK, 1 warming up, 2 degraded, 3 fault |
+| `seq` | integer | | Packet counter of the node. A step above 1 is a gap (lost packets); a drop back to 1 is a node reboot |
 
 ### 3. Ingestor live stream (HTTP, Server-Sent Events)
 
 `GET http://127.0.0.1:9100/stream` sends one JSON object per accepted packet:
 
 ```json
-{"device_id":"kitchen","timestamp_ns":1794000000000000000,"co2_ppm":650,
+{"device_id":"kitchen","timestamp_ns":1794000000000000000,"sequence_number":42,"co2_ppm":650,
  "temperature_celsius":21.5,"humidity_percent":45.0,"pm25_ug_m3":3.0,"pm10_ug_m3":5.0,
  "tvoc_ppb":500.0,"pressure_hpa":1013.2,"battery_millivolts":0,"rssi_dbm":-60,
  "status":0,"aqi_level":1}
@@ -94,6 +96,7 @@ The same port serves `GET /metrics` (Prometheus text format).
 | Situation | Behaviour | Data lost |
 | :--- | :--- | :--- |
 | Node loses Wi-Fi or the broker | Packets are appended to a 512 KB flash queue (about 11 h) and replayed on reconnection | None up to 11 h; beyond, the queue is cleared and restarts |
+| Node Wi-Fi stays down for 15 minutes | The node reboots (the automatic reconnection can stay stuck). The flash queue, the clock and the sensor calibration survive | None |
 | Node has no synchronised clock and is offline | Packets are not queued (they could not be dated on replay) | Yes, until NTP has synchronised once |
 | A sensor is disconnected | Its fields are 0, `status` = degraded; CO2 and pressure are not stored; the dashboard shows "Capteur manquant" | That sensor's values only |
 | Node stops publishing | Dashboard shows "Hors ligne" after 30 s | — |
@@ -108,7 +111,7 @@ The same port serves `GET /metrics` (Prometheus text format).
 
 ### Prerequisites
 
-- Rust toolchain, Python 3.10+, Mosquitto, InfluxDB 2.x
+- Rust toolchain, Python 3.10+, Mosquitto, InfluxDB 2.x (`mosquitto` and `influxd` binaries are also used by the tests)
 - For the firmware: PlatformIO (`pipx install platformio`)
 
 ### Local run with simulated sensors
@@ -154,9 +157,16 @@ All settings are environment variables. An invalid value stops the service at st
 | `MQTT_USER` / `MQTT_PASSWORD` | unset | ingestor, simulator | Required when the broker enforces authentication (always in production) |
 | `INGESTOR_BATCH_SIZE` | `12` | ingestor | Samples per InfluxDB write |
 | `INGESTOR_FLUSH_INTERVAL_SECS` | `30` | ingestor | Maximum delay before a write, and retry period |
-| `METRICS_PORT` | `9100` | ingestor, dashboard | Ingestor HTTP port on `127.0.0.1` |
+| `METRICS_PORT` | `9100` | ingestor, dashboard, health report | Ingestor HTTP port on `127.0.0.1` |
+| `ALERT_URL` | unset | health report | Where alerts are POSTed (production only) |
 
 Sensor node settings (pins, intervals, credentials) are compile-time constants in `firmware/include/config.h` and `secrets.h`.
+
+## Monitoring
+
+Every morning a systemd timer runs [`deploy/health-report.py`](deploy/health-report.py). It appends one line per node to `/var/lib/iot-airquality/health.csv` (points stored over 24 h, completeness, packets lost, node reboots, ingestor counters, disk usage, service restarts) and raises an alert when a node is silent, completeness is below 99 %, InfluxDB writes are failing or the disk is nearly full.
+
+An alert marks the unit as failed (`systemctl --failed`) and is written to the journal. If `ALERT_URL` is set in `/etc/iot-airquality/env`, the alert text is also POSTed there (an [ntfy](https://ntfy.sh) topic URL or any webhook).
 
 ## Tests
 
@@ -167,10 +177,10 @@ make test
 | Check | Covers |
 | :--- | :--- |
 | Ingestor unit tests | Packet validation, line protocol, AQI thresholds, stream event |
-| End-to-end test (`scripts/e2e_test.py`) | A packet published over MQTT reaches the InfluxDB write and the dashboard; history conversion; rejected packets; retry after a failed write; flush on SIGTERM. InfluxDB is replaced by a local recorder, so no database is needed |
+| End-to-end test (`scripts/e2e_test.py`) | A packet published over MQTT is stored in InfluxDB and shown by the dashboard; rejected packets; InfluxDB outage and recovery; real history query; daily health report and its alert; flush on SIGTERM. Runs against private, temporary instances of Mosquitto and InfluxDB: an existing database is never touched |
 | Firmware host test (`firmware/test_host/run.sh`) | Sensor parsers and Protobuf encoding, decoded by the Python bindings. Runs when `NANOPB_DIR` is set |
 
-Not covered by automation: the firmware on real hardware, a real InfluxDB instance, and the browser side (JavaScript is only syntax-checked). Both are part of the [V1 validation](docs/V1_VALIDATION.md).
+Not covered by automation: the firmware on real hardware, and the browser side (JavaScript is only syntax-checked). Both are part of the [V1 validation](docs/V1_VALIDATION.md).
 
 ## Security
 

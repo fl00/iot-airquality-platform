@@ -231,6 +231,7 @@ mod tests {
         let sample = MetricSample {
             device_id: "kitchen".into(),
             timestamp_ns: 1,
+            sequence_number: 7,
             co2_ppm: 1200,
             temperature_celsius: 21.0,
             humidity_percent: 40.0,

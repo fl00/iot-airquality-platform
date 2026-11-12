@@ -58,6 +58,8 @@ if [ ! -f "${ENV_FILE}" ]; then
 INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
 MQTT_USER=ingestor
 MQTT_PASSWORD=${MQTT_INGESTOR_PASSWORD}
+# Optional: where the daily health report sends its alerts (ntfy topic URL or webhook)
+# ALERT_URL=
 ENV
     cat > "${SENSOR_CREDENTIALS}" <<CRED
 # Copy these two values into firmware/include/secrets.h
@@ -99,14 +101,16 @@ cp -r "${BASE_DIR}/dashboard/." "${APP_ROOT}/dashboard/"
 [ -d "${APP_ROOT}/dashboard/.venv" ] || python3 -m venv "${APP_ROOT}/dashboard/.venv"
 "${APP_ROOT}/dashboard/.venv/bin/pip" install -q --upgrade pip
 "${APP_ROOT}/dashboard/.venv/bin/pip" install -q -r "${APP_ROOT}/dashboard/requirements.txt"
+install -m 0755 "${SCRIPT_DIR}/health-report.py" "${APP_ROOT}/health-report.py"
 chown -R iot-service:iot-service "${APP_ROOT}"
 
 echo "=== [6/6] Services ==="
-cp "${SCRIPT_DIR}/systemd/iot-ingestor.service" "${SCRIPT_DIR}/systemd/iot-dashboard.service" /etc/systemd/system/
+cp "${SCRIPT_DIR}"/systemd/iot-*.service "${SCRIPT_DIR}"/systemd/iot-*.timer /etc/systemd/system/
 cp "${SCRIPT_DIR}/Caddyfile" /etc/caddy/Caddyfile
 systemctl daemon-reload
 systemctl enable mosquitto influxdb caddy iot-ingestor iot-dashboard >/dev/null
 systemctl restart mosquitto influxdb caddy iot-ingestor iot-dashboard
+systemctl enable --now iot-health-report.timer >/dev/null
 
 sleep 2
 for svc in mosquitto influxdb iot-ingestor iot-dashboard caddy; do

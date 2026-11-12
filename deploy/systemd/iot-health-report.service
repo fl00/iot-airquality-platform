@@ -1,0 +1,14 @@
+[Unit]
+Description=IoT Air Quality daily health report (CSV line and alert)
+After=iot-ingestor.service influxdb.service
+
+[Service]
+Type=oneshot
+User=iot-service
+Group=iot-service
+# INFLUXDB_TOKEN, and ALERT_URL if alerts must be sent somewhere
+EnvironmentFile=/etc/iot-airquality/env
+# Creates /var/lib/iot-airquality, where health.csv is kept
+StateDirectory=iot-airquality
+ExecStart=/usr/bin/python3 /opt/iot-airquality/health-report.py
+# The unit is marked failed when an alert was raised: `systemctl --failed` shows it.

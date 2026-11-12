@@ -152,6 +152,7 @@ static void sensors_begin() {
 }
 
 static void sensors_poll() {}
+static void sensors_before_restart() {}
 
 static void sensors_snapshot(SensorSnapshot *out) {
     static uint32_t step = 0;
@@ -330,6 +331,11 @@ static void sensors_begin() {
                   s_bsec.version.major_bugfix, s_bsec.version.minor_bugfix);
 }
 
+/** Keeps the BSEC calibration across a planned restart. */
+static void sensors_before_restart() {
+    if (s_bme_present) bsec_save_state();
+}
+
 /** Must be called on every loop iteration: BSEC schedules its own measurements. */
 static void sensors_poll() {
     uint32_t now = millis();
@@ -399,7 +405,16 @@ static void sensors_snapshot(SensorSnapshot *out) {
 // Network (never blocks longer than MQTT_SOCKET_TIMEOUT_S)
 // =============================================================================
 static void service_network() {
-    if (WiFi.status() != WL_CONNECTED) return;  // Auto-reconnect runs in the Wi-Fi task
+    static uint32_t wifi_ok_ms = 0;  // last time Wi-Fi was seen connected (0 = boot)
+    if (WiFi.status() != WL_CONNECTED) {  // Auto-reconnect runs in the Wi-Fi task
+        if ((millis() - wifi_ok_ms) >= WIFI_DOWN_RESTART_MS) {
+            Serial.println(F("[WiFi] Down for too long, restarting."));
+            sensors_before_restart();
+            ESP.restart();
+        }
+        return;
+    }
+    wifi_ok_ms = millis();
 
     if (!s_ntp_started) {
         configTime(0, 0, NTP_SERVER_1, NTP_SERVER_2);  // UTC, SNTP resyncs hourly in background

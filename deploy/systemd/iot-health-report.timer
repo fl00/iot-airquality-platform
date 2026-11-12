@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the IoT Air Quality health report every morning
+
+[Timer]
+OnCalendar=*-*-* 07:00
+# Run at boot if the host was off at 07:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

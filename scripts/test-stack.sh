@@ -2,7 +2,7 @@
 # Runs every automated check of the platform. Used by `make test` and by CI.
 #
 #   1. Ingestor unit tests            (cargo)
-#   2. End-to-end test                (mosquitto + ingestor + dashboard, see e2e_test.py)
+#   2. End-to-end test                (private mosquitto, influxd, ingestor, dashboard: see e2e_test.py)
 #   3. Firmware encoding, host build  (only when NANOPB_DIR points to a nanopb 0.4.x checkout)
 #   4. JavaScript syntax              (only when node is installed)
 set -euo pipefail

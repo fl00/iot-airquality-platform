@@ -36,36 +36,32 @@ Run once at commissioning. Expected behaviour is specified in "Behaviour on Fail
 | `sudo systemctl stop influxdb` for 5 minutes, then start | `iot_influx_buffered_samples` rises then returns to 0; no gap in the chart |
 | Switch off the Wi-Fi access point for 5 minutes | Serial log shows `flash` then a replay; no gap in the chart afterwards |
 | `sudo systemctl restart iot-ingestor` | At most a few seconds missing in the chart |
+| Keep the node powered off for 15 minutes, then `sudo systemctl start iot-health-report` | An alert is raised and reaches `ALERT_URL` |
 
-## 4. Weekly Checks
+## 4. Monitoring During the Period
 
-About ten minutes. Record the results in the log (section 6).
+**Daily, automatic.** The health report runs at 07:00 ([`deploy/README.md`](../deploy/README.md#alerts)). Set `ALERT_URL` before the period starts, and provoke one alert (power off a node for 15 minutes, then run `sudo systemctl start iot-health-report`) to check that it reaches you.
+
+**Weekly, about ten minutes.** Read the last seven days of the report and copy anything notable into the feedback log (section 6):
 
 ```bash
-# Service health
-systemctl is-active mosquitto influxdb iot-ingestor iot-dashboard caddy
-systemctl show iot-ingestor iot-dashboard -p NRestarts -p MemoryCurrent
-
-# Ingestor counters
-curl -s http://127.0.0.1:9100/metrics | grep -E '^iot_'
-
-# Completeness: points stored per node over the last 7 days (expected: 120,960 per node at 5 s)
-sudo sh -c '. /etc/iot-airquality/env; curl -sG http://127.0.0.1:8086/query \
-  -H "Authorization: Token $INFLUXDB_TOKEN" --data-urlencode db=airquality \
-  --data-urlencode "q=SELECT count(temperature) FROM air_quality WHERE time > now() - 7d GROUP BY device_id"'
+column -s, -t /var/lib/iot-airquality/health.csv | tail -n 25
+systemctl show iot-ingestor iot-dashboard -p MemoryCurrent
 ```
 
-| Indicator | Source | Expected |
+| Indicator | Column or source | Expected |
 | :--- | :--- | :--- |
-| Completeness | Count above divided by 120,960 | At least 99 % |
-| Dropped packets | `iot_packets_dropped_total` | 0, or explained |
-| InfluxDB errors | `iot_influx_errors_total` | Stable outside known outages |
-| Buffered samples | `iot_influx_buffered_samples` | 0 |
-| Service restarts | `NRestarts` | 0, or explained |
+| Completeness | `completeness_pct` | At least 99 % (17,280 points per node and per day) |
+| Packets lost between node and storage | `missing_by_seq` | A few per day at most; a pattern is a finding |
+| Node reboots | `node_reboots` | 0, or explained (power cut, Wi-Fi recovery) |
+| Dropped packets | `packets_dropped_total` | 0, or explained |
+| InfluxDB errors | `influx_errors_total` | Stable outside known outages |
+| Buffered samples | `influx_buffered_samples` | 0 |
+| Service restarts | `ingestor_restarts`, `dashboard_restarts` | 0, or explained |
 | Memory | `MemoryCurrent` | Stable week over week, well below the unit limit (ingestor 40 MB, dashboard 128 MB) |
 | Sensor plausibility | Dashboard, 7-day view | Outdoor-air CO2 near 420 ppm after airing; temperature within 1 °C of a reference thermometer; no flat lines |
 
-On the node, also note from the serial log if accessible: reboots, `[FS]` replay lines, `sIAQ` against `bVOC` (to confirm the VOC thresholds).
+On the node, also note from the serial log if accessible: `sIAQ` against `bVOC` (to confirm the VOC thresholds).
 
 ## 5. Exit Criteria
 
@@ -75,7 +71,7 @@ V1 is validated when all of the following hold over **21 consecutive days**:
 2. No unexplained service restart, and no manual intervention needed to keep data flowing.
 3. Every fault check of section 3 behaved as specified.
 4. Readings judged plausible against at least one reference (thermometer, outdoor CO2 baseline).
-5. The feedback log has an entry for every week.
+5. The feedback log has an entry for every week, and `health.csv` a line for every day.
 
 These thresholds are a starting proposal; adjust them before the period starts, not during it.
 

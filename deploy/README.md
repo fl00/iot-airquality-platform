@@ -18,6 +18,7 @@ The script can be re-run to update the application: existing secrets and the Inf
 | Ingestor | `127.0.0.1:9100` | [`systemd/iot-ingestor.service`](systemd/iot-ingestor.service) |
 | Dashboard | `127.0.0.1:8000` | [`systemd/iot-dashboard.service`](systemd/iot-dashboard.service) |
 | Caddy | `0.0.0.0:80` | [`Caddyfile`](Caddyfile): reverse proxy to the dashboard |
+| Health report | — | [`health-report.py`](health-report.py), run daily at 07:00 by `iot-health-report.timer` |
 
 Application files go to `/opt/iot-airquality/`. Ingestor and dashboard run as the unprivileged user `iot-service` with systemd sandboxing and a memory limit (ingestor 40 MB, dashboard 128 MB).
 
@@ -33,12 +34,25 @@ Generated on the first run, never stored in the repository:
 
 To rotate everything, delete `/etc/iot-airquality/env` and re-run the script, then reflash the nodes with the new MQTT password.
 
+## Alerts
+
+The daily health report writes `/var/lib/iot-airquality/health.csv` and raises an alert when a node is silent for more than 10 minutes, completeness over 24 h is below 99 %, InfluxDB writes are failing, or the disk is more than 90 % full.
+
+To receive alerts on a phone or by another channel, add one line to `/etc/iot-airquality/env`:
+
+```
+ALERT_URL=https://ntfy.sh/<a-topic-name-only-you-know>
+```
+
+Any URL accepting a plain-text POST works (ntfy, self-hosted or not, or a webhook). The alert text contains device ids and figures, nothing else. Without `ALERT_URL`, alerts are visible with `systemctl --failed` and `journalctl -u iot-health-report`.
+
 ## Operations
 
 ```bash
 systemctl status iot-ingestor iot-dashboard
 journalctl -u iot-ingestor -f
 curl -s http://127.0.0.1:9100/metrics
+sudo systemctl start iot-health-report && column -s, -t /var/lib/iot-airquality/health.csv | tail   # report now
 ```
 
 Routine checks for the validation period are in [`docs/V1_VALIDATION.md`](../docs/V1_VALIDATION.md).

@@ -38,6 +38,9 @@
 // ---- Reliability ------------------------------------------------------------
 #define TWDT_TIMEOUT_SECONDS 15
 #define MQTT_RETRY_MS        5000UL
+// Wi-Fi auto-reconnect occasionally stays stuck on the ESP32: reboot after this long
+// without Wi-Fi. The offline queue, the clock and the BSEC state survive the reboot.
+#define WIFI_DOWN_RESTART_MS (15UL * 60UL * 1000UL)
 #define MQTT_SOCKET_TIMEOUT_S 4       // Must stay well below the watchdog timeout
 #define MAX_STATIC_TX_BUFFER 256
 #define QUEUE_MAX_FILE_BYTES (512 * 1024)
