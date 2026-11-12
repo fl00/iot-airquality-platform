@@ -220,4 +220,4 @@ docs/         Architecture decision records, air quality guide, V1 validation
 
 ## License
 
-Released under the MIT License.
+Released under the [MIT License](LICENSE). The firmware links the Bosch BSEC library, which is proprietary and has its own licence terms.
