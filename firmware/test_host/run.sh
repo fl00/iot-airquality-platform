@@ -20,6 +20,7 @@ assert p.base_timestamp_sec == 1794000000 and p.rssi_dbm == -61
 assert p.status == SensorStatus.STATUS_WARMING_UP and p.HasField("full_sample")
 # co2_ppm must be the SCD41 value (612), not the 999 ppm BSEC estimate
 assert fs.co2_ppm == 612 and abs(fs.tvoc_ppb - 731) < 0.01 and abs(fs.temperature_celsius - 21.37) < 1e-4
+assert fs.static_iaq == 62.5 and fs.iaq_accuracy == 3
 assert fs.pm25_ug_m3 == 156 and fs.pm10_ug_m3 == 510 and abs(fs.pressure_hpa - 1008.2) < 1e-3
 print(f"OK - {len(sys.argv[1])//2}-byte packet decodes with the Python bindings")
 PY

@@ -20,14 +20,14 @@ The original contract had two payloads: `FullSample` (a complete measurement) an
 
 | | Complete sample (V1) | Delta batches |
 | :--- | :--- | :--- |
-| Payload | about 64 bytes per measurement | about 8 bytes per measurement, plus periodic full samples |
-| Volume, one node at 5 s | about 1.1 MB per day | about 0.2 MB per day |
+| Payload | about 70 bytes per measurement | about 8 bytes per measurement, plus periodic full samples |
+| Volume, one node at 5 s | about 1.2 MB per day | about 0.2 MB per day |
 | Decoding | Stateless: every packet stands alone | Stateful: needs the last full sample of that node |
 | Lost or reordered packet | That measurement only | Every following delta is wrong until the next full sample, silently |
 | Ingestor restart | No effect | Deltas are undecodable until the next full sample |
 | Offline replay from flash | Any order, idempotent | Order and completeness required |
 
-Delta encoding saves bytes and radio time. Neither is a constraint for a mains-powered node on Wi-Fi: 1 MB per day is negligible, and the radio stays on for MQTT keep-alive regardless. The cost, on the other hand, is real: state on both sides, and a failure mode (drift after a lost packet) that corrupts data without any error. It was implemented in the ingestor but never emitted by the firmware or the simulator, and had no test.
+Delta encoding saves bytes and radio time. Neither is a constraint for a mains-powered node on Wi-Fi: about 1 MB per day is negligible, and the radio stays on for MQTT keep-alive regardless. The cost, on the other hand, is real: state on both sides, and a failure mode (drift after a lost packet) that corrupts data without any error. It was implemented in the ingestor but never emitted by the firmware or the simulator, and had no test.
 
 **Decision:** not relevant for V1. Recorded as a V2 optimisation, with its trigger and prerequisites, in the table below.
 

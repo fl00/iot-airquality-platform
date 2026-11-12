@@ -22,7 +22,8 @@ struct SensorSnapshot {
     bool  scd_ok;           // Fresh SCD41 measurement available
     float co2_ppm;          // SCD41 photoacoustic CO2 measurement
     float bvoc_ppm;         // BSEC breath-VOC equivalent
-    float static_iaq;       // BSEC static IAQ index (serial log only, not transmitted)
+    float static_iaq;       // BSEC static IAQ index, 0-500
+    uint8_t iaq_accuracy;   // BSEC calibration state of that index, 0-3
     float pm25_ug_m3;
     float pm10_ug_m3;
 };
@@ -61,6 +62,8 @@ inline size_t encode_packet(iot_airquality_AirQualityPacket *pkt,
         fs->humidity_percent    = s.humidity_pct;
         fs->pressure_hpa        = s.pressure_hpa;
         fs->tvoc_ppb            = s.bvoc_ppm * 1000.0f;
+        fs->static_iaq          = s.static_iaq;
+        fs->iaq_accuracy        = s.iaq_accuracy;
     }
     // CO2: real measurement when an SCD41 is fitted, BSEC estimate otherwise.
     // The two are never mixed: a silent SCD41 reports 0 + STATUS_DEGRADED.

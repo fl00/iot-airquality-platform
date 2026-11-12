@@ -24,17 +24,17 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11\x61ir_quality.proto\x12\x0eiot.airquality\"\xa4\x01\n\nFullSample\x12\x1b\n\x13temperature_celsius\x18\x01 \x01(\x02\x12\x18\n\x10humidity_percent\x18\x02 \x01(\x02\x12\x0f\n\x07\x63o2_ppm\x18\x03 \x01(\r\x12\x12\n\npm25_ug_m3\x18\x04 \x01(\x02\x12\x12\n\npm10_ug_m3\x18\x05 \x01(\x02\x12\x10\n\x08tvoc_ppb\x18\x06 \x01(\x02\x12\x14\n\x0cpressure_hpa\x18\x07 \x01(\x02\"\xfa\x01\n\x10\x41irQualityPacket\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x17\n\x0fsequence_number\x18\x02 \x01(\r\x12\x1a\n\x12\x62\x61se_timestamp_sec\x18\x03 \x01(\x04\x12\x1a\n\x12\x62\x61ttery_millivolts\x18\x04 \x01(\r\x12\x10\n\x08rssi_dbm\x18\x05 \x01(\x11\x12,\n\x06status\x18\x06 \x01(\x0e\x32\x1c.iot.airquality.SensorStatus\x12/\n\x0b\x66ull_sample\x18\x07 \x01(\x0b\x32\x1a.iot.airquality.FullSampleJ\x04\x08\x08\x10\tR\x0b\x64\x65lta_batch*[\n\x0cSensorStatus\x12\r\n\tSTATUS_OK\x10\x00\x12\x15\n\x11STATUS_WARMING_UP\x10\x01\x12\x13\n\x0fSTATUS_DEGRADED\x10\x02\x12\x10\n\x0cSTATUS_FAULT\x10\x03\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11\x61ir_quality.proto\x12\x0eiot.airquality\"\xce\x01\n\nFullSample\x12\x1b\n\x13temperature_celsius\x18\x01 \x01(\x02\x12\x18\n\x10humidity_percent\x18\x02 \x01(\x02\x12\x0f\n\x07\x63o2_ppm\x18\x03 \x01(\r\x12\x12\n\npm25_ug_m3\x18\x04 \x01(\x02\x12\x12\n\npm10_ug_m3\x18\x05 \x01(\x02\x12\x10\n\x08tvoc_ppb\x18\x06 \x01(\x02\x12\x14\n\x0cpressure_hpa\x18\x07 \x01(\x02\x12\x12\n\nstatic_iaq\x18\x08 \x01(\x02\x12\x14\n\x0ciaq_accuracy\x18\t \x01(\r\"\xfa\x01\n\x10\x41irQualityPacket\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x17\n\x0fsequence_number\x18\x02 \x01(\r\x12\x1a\n\x12\x62\x61se_timestamp_sec\x18\x03 \x01(\x04\x12\x1a\n\x12\x62\x61ttery_millivolts\x18\x04 \x01(\r\x12\x10\n\x08rssi_dbm\x18\x05 \x01(\x11\x12,\n\x06status\x18\x06 \x01(\x0e\x32\x1c.iot.airquality.SensorStatus\x12/\n\x0b\x66ull_sample\x18\x07 \x01(\x0b\x32\x1a.iot.airquality.FullSampleJ\x04\x08\x08\x10\tR\x0b\x64\x65lta_batch*[\n\x0cSensorStatus\x12\r\n\tSTATUS_OK\x10\x00\x12\x15\n\x11STATUS_WARMING_UP\x10\x01\x12\x13\n\x0fSTATUS_DEGRADED\x10\x02\x12\x10\n\x0cSTATUS_FAULT\x10\x03\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'air_quality_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_SENSORSTATUS']._serialized_start=457
-  _globals['_SENSORSTATUS']._serialized_end=548
+  _globals['_SENSORSTATUS']._serialized_start=499
+  _globals['_SENSORSTATUS']._serialized_end=590
   _globals['_FULLSAMPLE']._serialized_start=38
-  _globals['_FULLSAMPLE']._serialized_end=202
-  _globals['_AIRQUALITYPACKET']._serialized_start=205
-  _globals['_AIRQUALITYPACKET']._serialized_end=455
+  _globals['_FULLSAMPLE']._serialized_end=244
+  _globals['_AIRQUALITYPACKET']._serialized_start=247
+  _globals['_AIRQUALITYPACKET']._serialized_end=497
 # @@protoc_insertion_point(module_scope)

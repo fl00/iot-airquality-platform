@@ -63,7 +63,7 @@ int main() {
     s.scd_enabled = true; s.bme_calibrating = false;
     assert(compute_status(s) == iot_airquality_SensorStatus_STATUS_DEGRADED);
     s.scd_ok = true; s.co2_ppm = 612.4f; s.bme_calibrating = true;
-    s.eco2_ppm = 999.0f; s.bvoc_ppm = 0.731f; s.pm25_ug_m3 = pm25; s.pm10_ug_m3 = pm10;
+    s.eco2_ppm = 999.0f; s.bvoc_ppm = 0.731f; s.static_iaq = 62.5f; s.iaq_accuracy = 3; s.pm25_ug_m3 = pm25; s.pm10_ug_m3 = pm10;
 
     static iot_airquality_AirQualityPacket pkt;
     uint8_t buf[256];

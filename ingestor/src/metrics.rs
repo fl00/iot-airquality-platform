@@ -239,6 +239,8 @@ mod tests {
             pm10_ug_m3: 4.0,
             tvoc_ppb: 500.0,
             pressure_hpa: 1013.0,
+            static_iaq: 40.0,
+            iaq_accuracy: 3,
             battery_millivolts: 0,
             rssi_dbm: -60,
             status: 2,

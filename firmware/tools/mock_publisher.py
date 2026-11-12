@@ -74,7 +74,9 @@ def main():
                         pm25_ug_m3=pm25,
                         pm10_ug_m3=round(pm25 * 1.5, 2),
                         tvoc_ppb=85.0 + 20.0 * math.sin(angle),
-                        pressure_hpa=1013.25 + 2.0 * math.sin(angle * 0.1)
+                        pressure_hpa=1013.25 + 2.0 * math.sin(angle * 0.1),
+                        static_iaq=40.0 + 10.0 * math.sin(angle),
+                        iaq_accuracy=3,
                     )
                 )
 

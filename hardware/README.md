@@ -1,7 +1,7 @@
 # Nœud capteur qualité d'air — ESP32 + BME680 + SCD41 + PMS7003
 
 Prototype matériel de la plateforme : carte porteuse, firmware et boîtier imprimable.
-Le nœud publie une trame Protobuf `AirQualityPacket` (une mesure complète `FullSample`, ~64 octets)
+Le nœud publie une trame Protobuf `AirQualityPacket` (une mesure complète `FullSample`, ~70 octets)
 toutes les 5 s sur `sensors/<DEVICE_ID>/airquality`, conformément à `contracts/proto/air_quality.proto`.
 
 ## 1. Nomenclature
@@ -82,6 +82,7 @@ NANOPB_DIR=/chemin/vers/nanopb test_host/run.sh  # test hors cible : parseur PMS
 | `pressure_hpa` | BME680 | |
 | `co2_ppm` | SCD41 | Mesure réelle, une toutes les 5 s, compensée en pression par le BME680. |
 | `tvoc_ppb` | BSEC « breath VOC équivalent » × 1000 | Voir les limites ci-dessous. |
+| `static_iaq`, `iaq_accuracy` | BSEC | Indice IAQ statique (0 à 500) et état de calibration (0 à 3). Diagnostic : stockés pour vérifier les seuils COV, sans effet sur l'indice affiché. |
 | `pm25_ug_m3`, `pm10_ug_m3` | PMS7003, valeurs « atmosphériques » | Moyenne des trames reçues entre deux envois. |
 | `base_timestamp_sec` | NTP (UTC) | 0 tant que l'heure n'est pas synchronisée : l'ingestor horodate alors lui-même. |
 | `status` | — | `WARMING_UP` : 30 s de stabilisation du PMS, ~5 min de calibration BSEC. `DEGRADED` : un capteur muet (ses champs valent 0). `FAULT` : tous. |
@@ -103,8 +104,8 @@ flash toutes les 6 h, watchdog matériel à 15 s.
 - **Échelle des COV.** `tvoc_ppb` est le « breath-VOC équivalent » de BSEC (~500 ppb en air propre). Les seuils
   de l'ingestor (seul endroit où l'indice est calculé) sont calés sur cette échelle : 800 / 1900 / 4800 / 12000 ppb, soit les classes
   IAQ de Bosch (indice statique 50 / 100 / 150 / 200). La conversion indice → ppb repose sur deux relevés BSEC
-  publiés seulement, Bosch ne documentant pas la formule : la ligne `[TX]` du moniteur série affiche `sIAQ` et
-  `bVOC` côte à côte pour la vérifier sur votre capteur et ajuster les seuils.
+  publiés seulement, Bosch ne documentant pas la formule : l'indice IAQ est donc transmis et stocké avec les
+  mesures, pour vérifier les seuils sur vos capteurs en fin de validation (`docs/V1_VALIDATION.md`, section 5).
 - **BSEC est une bibliothèque propriétaire Bosch** (binaire précompilé, licence à accepter), ce qui est à
   vérifier avant toute diffusion commerciale.
 - **Rodage.** Le capteur de gaz d'un BME680 neuf demande ~48 h de fonctionnement avant de se stabiliser ;

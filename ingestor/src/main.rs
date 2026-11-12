@@ -43,7 +43,7 @@ fn is_valid_device_id(id: &str) -> bool {
 }
 
 fn is_finite_sample(s: &FullSample) -> bool {
-    [s.temperature_celsius, s.humidity_percent, s.pm25_ug_m3, s.pm10_ug_m3, s.tvoc_ppb, s.pressure_hpa]
+    [s.temperature_celsius, s.humidity_percent, s.pm25_ug_m3, s.pm10_ug_m3, s.tvoc_ppb, s.pressure_hpa, s.static_iaq]
         .iter()
         .all(|v| v.is_finite())
 }
@@ -88,6 +88,8 @@ fn parse_packet(topic: &str, payload: &[u8], metrics: &IngestorMetrics) -> Resul
         pm10_ug_m3: full.pm10_ug_m3,
         tvoc_ppb: full.tvoc_ppb,
         pressure_hpa: full.pressure_hpa,
+        static_iaq: full.static_iaq,
+        iaq_accuracy: full.iaq_accuracy,
         battery_millivolts: packet.battery_millivolts,
         rssi_dbm: packet.rssi_dbm,
         status: packet.status,

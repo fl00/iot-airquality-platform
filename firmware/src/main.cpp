@@ -170,6 +170,7 @@ static void sensors_snapshot(SensorSnapshot *out) {
     out->eco2_ppm      = out->co2_ppm;
     out->bvoc_ppm      = 0.60f + 0.15f * sinf(angle * 1.2f);
     out->static_iaq    = 40.0f;
+    out->iaq_accuracy  = 3;
     out->pm25_ug_m3    = 6.0f + 4.0f * fabsf(sinf(angle * 0.8f)) + (float)random(0, 4);
     out->pm10_ug_m3    = out->pm25_ug_m3 * 1.6f;
 }
@@ -379,6 +380,7 @@ static void sensors_snapshot(SensorSnapshot *out) {
         out->eco2_ppm        = s_bsec.co2Equivalent;
         out->bvoc_ppm        = s_bsec.breathVocEquivalent;
         out->static_iaq      = s_bsec.staticIaq;
+        out->iaq_accuracy    = s_bsec.staticIaqAccuracy;
         out->bme_calibrating = (s_bsec.iaqAccuracy == 0);
     }
 
@@ -470,10 +472,10 @@ static void sample_and_transmit() {
     // (the ingestor would stamp the whole backlog with the replay time): drop it.
     if (!sent && unix_ts != 0) persist_packet_to_flash(s_tx_buffer, len);
 
-    Serial.printf("[TX] #%u %s %uB st=%d | T=%.2fC RH=%.1f%% P=%.1fhPa CO2=%.0fppm bVOC=%.3fppm sIAQ=%.0f PM2.5=%.1f PM10=%.1f\n",
+    Serial.printf("[TX] #%u %s %uB st=%d | T=%.2fC RH=%.1f%% P=%.1fhPa CO2=%.0fppm bVOC=%.3fppm sIAQ=%.0f(acc %u) PM2.5=%.1f PM10=%.1f\n",
                   (unsigned int)s_sequence_counter, sent ? "mqtt" : (unix_ts != 0 ? "flash" : "lost"), (unsigned int)len,
                   (int)s_packet.status, snap.temperature_c, snap.humidity_pct, snap.pressure_hpa,
-                  snap.scd_enabled ? snap.co2_ppm : snap.eco2_ppm, snap.bvoc_ppm, snap.static_iaq, snap.pm25_ug_m3, snap.pm10_ug_m3);
+                  snap.scd_enabled ? snap.co2_ppm : snap.eco2_ppm, snap.bvoc_ppm, snap.static_iaq, (unsigned int)snap.iaq_accuracy, snap.pm25_ug_m3, snap.pm10_ug_m3);
 }
 
 // =============================================================================

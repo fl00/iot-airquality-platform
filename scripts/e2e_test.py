@@ -109,7 +109,8 @@ def packet(device_id, seq, ts, co2, status=SensorStatus.STATUS_OK, pressure=1013
     return AirQualityPacket(
         device_id=device_id, sequence_number=seq, base_timestamp_sec=ts, rssi_dbm=-60, status=status,
         full_sample=FullSample(temperature_celsius=21.5, humidity_percent=45.0, co2_ppm=co2,
-                               pm25_ug_m3=3.0, pm10_ug_m3=5.0, tvoc_ppb=5000.0, pressure_hpa=pressure),
+                               pm25_ug_m3=3.0, pm10_ug_m3=5.0, tvoc_ppb=5000.0, pressure_hpa=pressure,
+                               static_iaq=152.5, iaq_accuracy=3),
     ).SerializeToString()
 
 
@@ -183,6 +184,7 @@ def main():
         wait_for(lambda: metric("iot_influx_buffered_samples") == 0, "buffered sample written", timeout=30)
         rows = influx_rows()
         assert len(rows) == 1 and rows[0]["co2"] == 650 and rows[0]["seq"] == 1 and rows[0]["time"] == now - 120, rows
+        assert rows[0]["iaq"] == 152.5 and rows[0]["iaq_accuracy"] == 3, rows
         print("  ok  InfluxDB outage: sample kept and written afterwards; nothing invalid stored")
 
         # --- 4. Missing sensors: impossible zeros are not stored; status is ------------

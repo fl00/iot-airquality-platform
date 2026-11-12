@@ -3,7 +3,7 @@
 [`proto/air_quality.proto`](proto/air_quality.proto) is the reference for the wire format between a sensor node and the ingestor. Field semantics are documented in the file itself.
 
 - Transport: MQTT, topic `sensors/<device_id>/airquality`, one `AirQualityPacket` per message.
-- One packet carries one complete measurement (`FullSample`), about 64 bytes.
+- One packet carries one complete measurement (`FullSample`), about 70 bytes.
 - Delta-encoded batches are not part of V1; field 8 is reserved for them. See [ADR 0005](../docs/adr/0005-v1-scope.md).
 
 ## Bindings

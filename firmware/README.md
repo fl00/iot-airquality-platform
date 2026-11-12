@@ -17,7 +17,7 @@ Every 5 s the node publishes one `AirQualityPacket` on `sensors/<DEVICE_ID>/airq
 
 ## Behaviour
 
-- **Offline queue.** While Wi-Fi or the broker is unavailable, packets are appended to `/offline_queue.bin` on flash (512 KB, about 11 h) and replayed on reconnection. When full, the queue is cleared and restarts. Packets produced before the clock is synchronised are not queued.
+- **Offline queue.** While Wi-Fi or the broker is unavailable, packets are appended to `/offline_queue.bin` on flash (512 KB, about 10 h) and replayed on reconnection. When full, the queue is cleared and restarts. Packets produced before the clock is synchronised are not queued.
 - **Clock.** NTP, UTC. Until synchronised, packets carry timestamp 0 and the ingestor uses the reception time.
 - **Status.** `WARMING_UP` during the first 30 s (PMS7003) and until BSEC has calibrated (about 5 min); `DEGRADED` when a sensor is silent (its fields are 0); `FAULT` when all are.
 - **Watchdog.** The node resets if the main loop stalls for 15 s.

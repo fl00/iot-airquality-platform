@@ -42,7 +42,7 @@ Run once at commissioning. Expected behaviour is specified in "Behaviour on Fail
 
 **Daily, automatic.** The health report runs at 07:00 ([`deploy/README.md`](../deploy/README.md#alerts)). Set `ALERT_URL` before the period starts, and provoke one alert (power off a node for 15 minutes, then run `sudo systemctl start iot-health-report`) to check that it reaches you.
 
-**Weekly, about ten minutes.** Read the last seven days of the report and copy anything notable into the feedback log (section 6):
+**Weekly, about ten minutes.** Read the last seven days of the report and copy anything notable into the feedback log (section 7):
 
 ```bash
 column -s, -t /var/lib/iot-airquality/health.csv | tail -n 25
@@ -61,9 +61,30 @@ systemctl show iot-ingestor iot-dashboard -p MemoryCurrent
 | Memory | `MemoryCurrent` | Stable week over week, well below the unit limit (ingestor 40 MB, dashboard 128 MB) |
 | Sensor plausibility | Dashboard, 7-day view | Outdoor-air CO2 near 420 ppm after airing; temperature within 1 °C of a reference thermometer; no flat lines |
 
-On the node, also note from the serial log if accessible: `sIAQ` against `bVOC` (to confirm the VOC thresholds).
+## 5. VOC Threshold Check
 
-## 5. Exit Criteria
+The VOC thresholds (800 / 1900 / 4800 / 12000 ppb) are meant to sit at the Bosch IAQ class boundaries (static IAQ 50 / 100 / 150 / 200), but the conversion rests on two published readings only. Each packet therefore carries the IAQ index and its calibration state. At the end of the period, read the mean VOC value observed around each boundary, keeping fully calibrated measurements only:
+
+```bash
+TOKEN=$(sudo sed -n 's/^INFLUXDB_TOKEN=//p' /etc/iot-airquality/env)
+for iaq in 50 100 150 200; do
+  curl -sG http://127.0.0.1:8086/query -H "Authorization: Token $TOKEN" \
+    --data-urlencode db=airquality \
+    --data-urlencode "q=SELECT mean(tvoc), count(tvoc) FROM air_quality WHERE iaq_accuracy = 3 AND iaq > $((iaq - 5)) AND iaq < $((iaq + 5))"
+  echo
+done
+```
+
+| IAQ around | Expected mean `tvoc` | Action if it differs by more than about 20 % |
+| :--- | :--- | :--- |
+| 50 | 800 ppb | Replace the threshold by the observed value in `compute_aqi_level` (`ingestor/src/metrics.rs`) and in the air quality guides |
+| 100 | 1900 ppb | Same |
+| 150 | 4800 ppb | Same |
+| 200 | 12000 ppb | Same; this one was extrapolated |
+
+A boundary with few measurements (low `count`) was not reached during the period: leave its threshold unchanged and note it in the feedback log.
+
+## 6. Exit Criteria
 
 V1 is validated when all of the following hold over **21 consecutive days**:
 
@@ -72,10 +93,11 @@ V1 is validated when all of the following hold over **21 consecutive days**:
 3. Every fault check of section 3 behaved as specified.
 4. Readings judged plausible against at least one reference (thermometer, outdoor CO2 baseline).
 5. The feedback log has an entry for every week, and `health.csv` a line for every day.
+6. The VOC threshold check of section 5 has been done and its result recorded.
 
 These thresholds are a starting proposal; adjust them before the period starts, not during it.
 
-## 6. Feedback Log
+## 7. Feedback Log
 
 One line per observation, as it happens. Keep it factual: what was seen, not the fix.
 

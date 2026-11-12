@@ -26,6 +26,10 @@ pub struct FullSample {
     pub tvoc_ppb: f32,
     #[prost(float, tag = "7")]
     pub pressure_hpa: f32,
+    #[prost(float, tag = "8")]
+    pub static_iaq: f32,
+    #[prost(uint32, tag = "9")]
+    pub iaq_accuracy: u32,
 }
 
 #[derive(Clone, PartialEq, ::prost::Message)]

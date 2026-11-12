@@ -53,7 +53,7 @@ The platform has three interfaces. Each has exactly one definition.
 
 ### 1. Sensor node to ingestor (MQTT, Protobuf)
 
-- Topic: `sensors/<device_id>/airquality`, one `AirQualityPacket` per message, about 64 bytes.
+- Topic: `sensors/<device_id>/airquality`, one `AirQualityPacket` per message, about 70 bytes.
 - Schema: [`contracts/proto/air_quality.proto`](contracts/proto/air_quality.proto). It is the reference; field semantics are documented there.
 - `device_id` matches `[A-Za-z0-9_-]{1,31}` and must equal the id in the topic.
 - A field whose sensor is missing is `0`, and `status` is `STATUS_DEGRADED`.
@@ -71,6 +71,8 @@ Measurement `air_quality`, tag `device_id`, timestamp in nanoseconds.
 | `humidity` | float | % | |
 | `pm25`, `pm10` | float | µg/m³ | |
 | `tvoc` | float | ppb | BSEC breath-VOC equivalent |
+| `iaq` | float | | BSEC static IAQ index, 0 to 500. Diagnostic: stored to check the VOC thresholds, not used for the AQI level |
+| `iaq_accuracy` | integer | | BSEC calibration state, 0 (not calibrated) to 3 (fully calibrated) |
 | `battery_mv` | integer | mV | 0 = mains powered |
 | `rssi` | integer | dBm | |
 | `status` | integer | | `SensorStatus` value: 0 OK, 1 warming up, 2 degraded, 3 fault |
@@ -83,7 +85,7 @@ Measurement `air_quality`, tag `device_id`, timestamp in nanoseconds.
 ```json
 {"device_id":"kitchen","timestamp_ns":1794000000000000000,"sequence_number":42,"co2_ppm":650,
  "temperature_celsius":21.5,"humidity_percent":45.0,"pm25_ug_m3":3.0,"pm10_ug_m3":5.0,
- "tvoc_ppb":500.0,"pressure_hpa":1013.2,"battery_millivolts":0,"rssi_dbm":-60,
+ "tvoc_ppb":500.0,"pressure_hpa":1013.2,"static_iaq":42.0,"iaq_accuracy":3,"battery_millivolts":0,"rssi_dbm":-60,
  "status":0,"aqi_level":1}
 ```
 
@@ -95,7 +97,7 @@ The same port serves `GET /metrics` (Prometheus text format).
 
 | Situation | Behaviour | Data lost |
 | :--- | :--- | :--- |
-| Node loses Wi-Fi or the broker | Packets are appended to a 512 KB flash queue (about 11 h) and replayed on reconnection | None up to 11 h; beyond, the queue is cleared and restarts |
+| Node loses Wi-Fi or the broker | Packets are appended to a 512 KB flash queue (about 10 h) and replayed on reconnection | None up to 10 h; beyond, the queue is cleared and restarts |
 | Node Wi-Fi stays down for 15 minutes | The node reboots (the automatic reconnection can stay stuck). The flash queue, the clock and the sensor calibration survive | None |
 | Node has no synchronised clock and is offline | Packets are not queued (they could not be dated on replay) | Yes, until NTP has synchronised once |
 | A sensor is disconnected | Its fields are 0, `status` = degraded; CO2 and pressure are not stored; the dashboard shows "Capteur manquant" | That sensor's values only |
@@ -202,7 +204,7 @@ V1 assumes a trusted LAN: MQTT and the dashboard are not encrypted, and the dash
 - The ingestor uses a clean MQTT session: packets sent while it is down are lost.
 - The node publishes with MQTT QoS 0: after a Wi-Fi drop, packets sent before the node detects the loss (up to about 45 s) are neither delivered nor queued.
 - The dashboard forgets its sensor list on restart; cards reappear with the next packet (within 5 s).
-- VOC thresholds are derived from two published BSEC readings and must be confirmed on real sensors.
+- VOC thresholds are derived from two published BSEC readings and must be confirmed on real sensors. The `iaq` and `iaq_accuracy` fields are stored for that purpose (see the validation guide).
 - Firmware has been compiled but not yet run on hardware.
 - No remote access: the host is reachable from its LAN only. A private overlay network is planned for V2 (ADR 0005).
 

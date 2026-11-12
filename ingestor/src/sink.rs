@@ -21,6 +21,9 @@ pub struct MetricSample {
     pub pm10_ug_m3: f32,
     pub tvoc_ppb: f32,
     pub pressure_hpa: f32,
+    /// BSEC diagnostics, stored to check the VOC thresholds; not used for the AQI level.
+    pub static_iaq: f32,
+    pub iaq_accuracy: u32,
     pub battery_millivolts: u32,
     pub rssi_dbm: i32,
     pub status: i32,
@@ -107,12 +110,14 @@ pub fn format_line_protocol(samples: &[MetricSample]) -> String {
         }
         let _ = writeln!(
             out,
-            "temperature={:.2},humidity={:.2},pm25={:.2},pm10={:.2},tvoc={:.2},battery_mv={}i,rssi={}i,status={}i,seq={}i {}",
+            "temperature={:.2},humidity={:.2},pm25={:.2},pm10={:.2},tvoc={:.2},iaq={:.1},iaq_accuracy={}i,battery_mv={}i,rssi={}i,status={}i,seq={}i {}",
             s.temperature_celsius,
             s.humidity_percent,
             s.pm25_ug_m3,
             s.pm10_ug_m3,
             s.tvoc_ppb,
+            s.static_iaq,
+            s.iaq_accuracy,
             s.battery_millivolts,
             s.rssi_dbm,
             s.status,
@@ -139,6 +144,8 @@ mod tests {
             pm10_ug_m3: 12.0,
             tvoc_ppb: 500.0,
             pressure_hpa: 1013.25,
+            static_iaq: 62.5,
+            iaq_accuracy: 3,
             battery_millivolts: 0,
             rssi_dbm: -65,
             status: 0,
@@ -150,7 +157,7 @@ mod tests {
         assert_eq!(
             format_line_protocol(&[sample()]),
             "air_quality,device_id=kitchen co2=650i,pressure=1013.25,temperature=22.46,humidity=48.20,\
-             pm25=8.10,pm10=12.00,tvoc=500.00,battery_mv=0i,rssi=-65i,status=0i,seq=42i 1794000000000000000\n"
+             pm25=8.10,pm10=12.00,tvoc=500.00,iaq=62.5,iaq_accuracy=3i,battery_mv=0i,rssi=-65i,status=0i,seq=42i 1794000000000000000\n"
         );
     }
 

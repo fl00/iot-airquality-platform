@@ -22,6 +22,10 @@ message FullSample {
   float pm10_ug_m3 = 5;           // PM10, µg/m³
   float tvoc_ppb = 6;             // VOC, ppb (BSEC breath-VOC equivalent on the BME680)
   float pressure_hpa = 7;         // Atmospheric pressure, hPa
+  // Diagnostic values of the BME680 (BSEC library). Stored to check the VOC thresholds;
+  // not used for the AQI level.
+  float static_iaq = 8;           // BSEC static IAQ index, 0 (clean) to 500
+  uint32 iaq_accuracy = 9;        // BSEC calibration state: 0 (not calibrated) to 3 (fully calibrated)
 }
 
 message AirQualityPacket {

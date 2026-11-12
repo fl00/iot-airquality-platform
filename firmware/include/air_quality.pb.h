@@ -26,6 +26,8 @@ typedef struct _iot_airquality_FullSample {
     float pm10_ug_m3;
     float tvoc_ppb;
     float pressure_hpa;
+    float static_iaq;
+    uint32_t iaq_accuracy;
 } iot_airquality_FullSample;
 
 typedef struct _iot_airquality_AirQualityPacket {
@@ -48,9 +50,9 @@ typedef struct _iot_airquality_AirQualityPacket {
 #define iot_airquality_AirQualityPacket_full_sample_tag 7
 
 /* Struct initializers */
-#define iot_airquality_FullSample_init_default   {0, 0, 0, 0, 0, 0, 0}
+#define iot_airquality_FullSample_init_default   {0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define iot_airquality_AirQualityPacket_init_default {"", 0, 0, 0, 0, iot_airquality_SensorStatus_MIN, false, iot_airquality_FullSample_init_default}
-#define iot_airquality_FullSample_init_zero      {0, 0, 0, 0, 0, 0, 0}
+#define iot_airquality_FullSample_init_zero      {0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define iot_airquality_AirQualityPacket_init_zero {"", 0, 0, 0, 0, iot_airquality_SensorStatus_MIN, false, iot_airquality_FullSample_init_zero}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -61,6 +63,8 @@ typedef struct _iot_airquality_AirQualityPacket {
 #define iot_airquality_FullSample_pm10_ug_m3_tag 5
 #define iot_airquality_FullSample_tvoc_ppb_tag   6
 #define iot_airquality_FullSample_pressure_hpa_tag 7
+#define iot_airquality_FullSample_static_iaq_tag 8
+#define iot_airquality_FullSample_iaq_accuracy_tag 9
 #define iot_airquality_AirQualityPacket_device_id_tag 1
 #define iot_airquality_AirQualityPacket_sequence_number_tag 2
 #define iot_airquality_AirQualityPacket_base_timestamp_sec_tag 3
@@ -76,7 +80,9 @@ X(a, STATIC,   SINGULAR, UINT32,   co2_ppm,           3) \
 X(a, STATIC,   SINGULAR, FLOAT,    pm25_ug_m3,        4) \
 X(a, STATIC,   SINGULAR, FLOAT,    pm10_ug_m3,        5) \
 X(a, STATIC,   SINGULAR, FLOAT,    tvoc_ppb,          6) \
-X(a, STATIC,   SINGULAR, FLOAT,    pressure_hpa,      7)
+X(a, STATIC,   SINGULAR, FLOAT,    pressure_hpa,      7) \
+X(a, STATIC,   SINGULAR, FLOAT,    static_iaq,        8) \
+X(a, STATIC,   SINGULAR, UINT32,   iaq_accuracy,      9)
 #define iot_airquality_FullSample_CALLBACK NULL
 #define iot_airquality_FullSample_DEFAULT NULL
 
@@ -102,8 +108,8 @@ extern const pb_msgdesc_t iot_airquality_AirQualityPacket_msg;
 #define iot_airquality_AirQualityPacket_fields &iot_airquality_AirQualityPacket_msg
 
 /* Defines for maximum message sizes */
-#define iot_airquality_FullSample_size           35
-#define iot_airquality_AirQualityPacket_size     101
+#define iot_airquality_FullSample_size           46
+#define iot_airquality_AirQualityPacket_size     112
 
 #ifdef __cplusplus
 extern "C" {
