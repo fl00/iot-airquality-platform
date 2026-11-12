@@ -30,10 +30,11 @@ apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
     curl wget gpg openssl mosquitto mosquitto-clients caddy python3 python3-venv >/dev/null
 if ! command -v influxd >/dev/null 2>&1; then
-    wget -q https://repos.influxdata.com/influxdata-archive_compat.key
-    gpg --dearmor -o /etc/apt/trusted.gpg.d/influxdata-archive_compat.gpg influxdata-archive_compat.key
-    rm -f influxdata-archive_compat.key
-    echo 'deb [signed-by=/etc/apt/trusted.gpg.d/influxdata-archive_compat.gpg] https://repos.influxdata.com/debian stable main' \
+    # InfluxData signing key (the former "_compat" key expired in January 2026)
+    install -d -m 0755 /etc/apt/keyrings
+    wget -qO- https://repos.influxdata.com/influxdata-archive.key \
+        | gpg --dearmor --yes -o /etc/apt/keyrings/influxdata-archive.gpg
+    echo 'deb [signed-by=/etc/apt/keyrings/influxdata-archive.gpg] https://repos.influxdata.com/debian stable main' \
         > /etc/apt/sources.list.d/influxdata.list
     apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq influxdb2 influxdb2-cli >/dev/null

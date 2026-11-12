@@ -1,6 +1,6 @@
 # Deployment
 
-Single host, Debian or Ubuntu, on the same LAN as the sensor nodes.
+Single host, Debian or Ubuntu, on the same LAN as the sensor nodes. To use a Mac that keeps macOS, run the same deployment in an Ubuntu virtual machine: see [`MACOS_VM.md`](MACOS_VM.md).
 
 ```bash
 make build                               # as a normal user: builds the ingestor

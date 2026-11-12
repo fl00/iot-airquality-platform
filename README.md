@@ -143,7 +143,7 @@ pio run -e esp32dev -t upload && pio device monitor
 make build && sudo ./deploy/deploy-baremetal.sh
 ```
 
-See [`deploy/README.md`](deploy/README.md).
+See [`deploy/README.md`](deploy/README.md). For a Mac host, see [`deploy/MACOS_VM.md`](deploy/MACOS_VM.md).
 
 ## Configuration
 
