@@ -176,13 +176,15 @@ pub fn compute_aqi_level(co2_ppm: u32, pm25_ug: f32, tvoc_ppb: f32) -> u8 {
     } else {
         5
     };
-    let sub_tvoc = if tvoc_ppb < 65.0 {
+    // BSEC breath-VOC equivalent scale (BME680), in ppb: boundaries at Bosch static IAQ
+    // 50 / 100 / 150 / 200. Keep in sync with dashboard/aqi_engine.py.
+    let sub_tvoc = if tvoc_ppb < 800.0 {
         1
-    } else if tvoc_ppb < 220.0 {
+    } else if tvoc_ppb < 1900.0 {
         2
-    } else if tvoc_ppb < 660.0 {
+    } else if tvoc_ppb < 4800.0 {
         3
-    } else if tvoc_ppb < 2200.0 {
+    } else if tvoc_ppb < 12000.0 {
         4
     } else {
         5

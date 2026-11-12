@@ -92,15 +92,21 @@ $$\text{Indice Global} = \max\left(\text{Niveau}_{CO_2},\ \text{Niveau}_{PM_{2.5
 
 ```
 ┌───────────────┬─────────────────┬─────────────────┬──────────────────┬─────────────────┐
-│ NIVEAU GLOBAL │ QUALIFICATION   │ CO₂ (ppm)       │ PM2.5 (µg/m³)    │ TVOC (ppb)      │
+│ NIVEAU GLOBAL │ QUALIFICATION   │ CO₂ (ppm)       │ PM2.5 (µg/m³)    │ COV éq. (ppb)   │
 ├───────────────┼─────────────────┼─────────────────┼──────────────────┼─────────────────┤
-│ 🌿 Niveau 1   │ Excellent       │ < 600           │ < 5.0            │ < 65            │
-│ 🌱 Niveau 2   │ Bon             │ 600 – 800       │ 5.0 – 12.0       │ 65 – 220        │
-│ 🟡 Niveau 3   │ Moyen           │ 800 – 1000      │ 12.0 – 25.0      │ 220 – 660       │
-│ ⚠️ Niveau 4   │ Dégradé         │ 1000 – 1500     │ 25.0 – 50.0      │ 660 – 2200      │
-│ 🚨 Niveau 5   │ Mauvais         │ > 1500          │ > 50.0           │ > 2200          │
+│ 🌿 Niveau 1   │ Excellent       │ < 600           │ < 5.0            │ < 800           │
+│ 🌱 Niveau 2   │ Bon             │ 600 – 800       │ 5.0 – 12.0       │ 800 – 1900      │
+│ 🟡 Niveau 3   │ Moyen           │ 800 – 1000      │ 12.0 – 25.0      │ 1900 – 4800     │
+│ ⚠️ Niveau 4   │ Dégradé         │ 1000 – 1500     │ 25.0 – 50.0      │ 4800 – 12000    │
+│ 🚨 Niveau 5   │ Mauvais         │ > 1500          │ > 50.0           │ > 12000         │
 └───────────────┴─────────────────┴─────────────────┴──────────────────┴─────────────────┘
 ```
+
+> **Échelle des COV.** La colonne COV est exprimée en « breath-VOC équivalent » BSEC (capteur Bosch BME680), qui vaut
+> environ 500 ppb en air propre. Les seuils correspondent aux classes IAQ de Bosch (indice statique 50 / 100 / 150 / 200),
+> converties par un ajustement log-linéaire sur deux relevés BSEC publiés ; le dernier seuil est extrapolé.
+> Ils ne s'appliquent pas à un capteur TVOC d'une autre famille (SGP30/SGP40, ENS160…).
+
 
 ---
 

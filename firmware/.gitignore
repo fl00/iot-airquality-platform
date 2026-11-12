@@ -15,3 +15,6 @@ compile_commands.json
 *.hex
 *.bin
 *.elf
+
+# Local credentials
+include/secrets.h

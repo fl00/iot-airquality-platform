@@ -68,11 +68,11 @@ typedef struct _iot_airquality_AirQualityPacket {
 #define iot_airquality_FullSample_init_default   {0, 0, 0, 0, 0, 0, 0}
 #define iot_airquality_DeltaSample_init_default  {0, 0, 0, 0, 0}
 #define iot_airquality_DeltaBatch_init_default   {0, {iot_airquality_DeltaSample_init_default, iot_airquality_DeltaSample_init_default, iot_airquality_DeltaSample_init_default, iot_airquality_DeltaSample_init_default, iot_airquality_DeltaSample_init_default, iot_airquality_DeltaSample_init_default, iot_airquality_DeltaSample_init_default, iot_airquality_DeltaSample_init_default, iot_airquality_DeltaSample_init_default, iot_airquality_DeltaSample_init_default, iot_airquality_DeltaSample_init_default, iot_airquality_DeltaSample_init_default}}
-#define iot_airquality_AirQualityPacket_init_default {"", 0, 0, 0, 0, _iot_airquality_SensorStatus_MIN, 0, {iot_airquality_FullSample_init_default}}
+#define iot_airquality_AirQualityPacket_init_default {"", 0, 0, 0, 0, iot_airquality_SensorStatus_MIN, 0, {iot_airquality_FullSample_init_default}}
 #define iot_airquality_FullSample_init_zero      {0, 0, 0, 0, 0, 0, 0}
 #define iot_airquality_DeltaSample_init_zero     {0, 0, 0, 0, 0}
 #define iot_airquality_DeltaBatch_init_zero      {0, {iot_airquality_DeltaSample_init_zero, iot_airquality_DeltaSample_init_zero, iot_airquality_DeltaSample_init_zero, iot_airquality_DeltaSample_init_zero, iot_airquality_DeltaSample_init_zero, iot_airquality_DeltaSample_init_zero, iot_airquality_DeltaSample_init_zero, iot_airquality_DeltaSample_init_zero, iot_airquality_DeltaSample_init_zero, iot_airquality_DeltaSample_init_zero, iot_airquality_DeltaSample_init_zero, iot_airquality_DeltaSample_init_zero}}
-#define iot_airquality_AirQualityPacket_init_zero {"", 0, 0, 0, 0, _iot_airquality_SensorStatus_MIN, 0, {iot_airquality_FullSample_init_zero}}
+#define iot_airquality_AirQualityPacket_init_zero {"", 0, 0, 0, 0, iot_airquality_SensorStatus_MIN, 0, {iot_airquality_FullSample_init_zero}}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define iot_airquality_DeltaSample_time_offset_sec_tag 1
@@ -95,11 +95,58 @@ typedef struct _iot_airquality_AirQualityPacket {
 #define iot_airquality_AirQualityPacket_rssi_dbm_tag 5
 #define iot_airquality_AirQualityPacket_status_tag 6
 
+/* Struct field encoding/decoding description */
+#define iot_airquality_FullSample_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, FLOAT,    temperature_celsius,   1) \
+X(a, STATIC,   SINGULAR, FLOAT,    humidity_percent,   2) \
+X(a, STATIC,   SINGULAR, UINT32,   co2_ppm,           3) \
+X(a, STATIC,   SINGULAR, FLOAT,    pm25_ug_m3,        4) \
+X(a, STATIC,   SINGULAR, FLOAT,    pm10_ug_m3,        5) \
+X(a, STATIC,   SINGULAR, FLOAT,    tvoc_ppb,          6) \
+X(a, STATIC,   SINGULAR, FLOAT,    pressure_hpa,      7)
+#define iot_airquality_FullSample_CALLBACK NULL
+#define iot_airquality_FullSample_DEFAULT NULL
+
+#define iot_airquality_DeltaSample_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   time_offset_sec,   1) \
+X(a, STATIC,   SINGULAR, SINT32,   co2_delta_ppm,     2) \
+X(a, STATIC,   SINGULAR, SINT32,   temp_delta_centi_deg,   3) \
+X(a, STATIC,   SINGULAR, SINT32,   hum_delta_centi_pct,   4) \
+X(a, STATIC,   SINGULAR, SINT32,   pm25_delta_centi_ug,   5)
+#define iot_airquality_DeltaSample_CALLBACK NULL
+#define iot_airquality_DeltaSample_DEFAULT NULL
+
+#define iot_airquality_DeltaBatch_FIELDLIST(X, a) \
+X(a, STATIC,   REPEATED, MESSAGE,  samples,           1)
+#define iot_airquality_DeltaBatch_CALLBACK NULL
+#define iot_airquality_DeltaBatch_DEFAULT NULL
+#define iot_airquality_DeltaBatch_samples_MSGTYPE iot_airquality_DeltaSample
+
+#define iot_airquality_AirQualityPacket_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   device_id,         1) \
+X(a, STATIC,   SINGULAR, UINT32,   sequence_number,   2) \
+X(a, STATIC,   SINGULAR, UINT64,   base_timestamp_sec,   3) \
+X(a, STATIC,   SINGULAR, UINT32,   battery_millivolts,   4) \
+X(a, STATIC,   SINGULAR, SINT32,   rssi_dbm,          5) \
+X(a, STATIC,   SINGULAR, UENUM,    status,            6) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,full_sample,payload.full_sample),   7) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,delta_batch,payload.delta_batch),   8)
+#define iot_airquality_AirQualityPacket_CALLBACK NULL
+#define iot_airquality_AirQualityPacket_DEFAULT NULL
+#define iot_airquality_AirQualityPacket_payload_full_sample_MSGTYPE iot_airquality_FullSample
+#define iot_airquality_AirQualityPacket_payload_delta_batch_MSGTYPE iot_airquality_DeltaBatch
+
 /* Struct field encoding/decoding descriptor definitions */
 extern const pb_msgdesc_t iot_airquality_FullSample_msg;
 extern const pb_msgdesc_t iot_airquality_DeltaSample_msg;
 extern const pb_msgdesc_t iot_airquality_DeltaBatch_msg;
 extern const pb_msgdesc_t iot_airquality_AirQualityPacket_msg;
+
+/* Maps struct names to field arrays (pb_encode / pb_decode expect these) */
+#define iot_airquality_FullSample_fields &iot_airquality_FullSample_msg
+#define iot_airquality_DeltaSample_fields &iot_airquality_DeltaSample_msg
+#define iot_airquality_DeltaBatch_fields &iot_airquality_DeltaBatch_msg
+#define iot_airquality_AirQualityPacket_fields &iot_airquality_AirQualityPacket_msg
 
 /* Defines for maximum message sizes */
 #define iot_airquality_FullSample_size           35

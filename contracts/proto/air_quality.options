@@ -1,0 +1,3 @@
+# Nanopb static-allocation limits (keep in sync with firmware/include/air_quality.pb.h)
+iot.airquality.AirQualityPacket.device_id  max_size:32
+iot.airquality.DeltaBatch.samples          max_count:12

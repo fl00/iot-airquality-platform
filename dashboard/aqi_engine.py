@@ -44,14 +44,19 @@ def compute_aqi(co2_ppm: int, pm25_ug: float, tvoc_ppb: float = 0.0) -> Dict[str
     else:
         sub_pm25 = 5
 
-    # 3. TVOC Sub-index (Volatile Organic Compounds)
-    if tvoc_ppb < 65.0:
+    # 3. VOC Sub-index - BSEC "breath-VOC equivalent" scale (Bosch BME680), in ppb.
+    # BSEC reports ~500 ppb in clean air, so the UBA TVOC scale (65/220/660/2200)
+    # does not apply. Boundaries follow Bosch's IAQ classes (static IAQ 50/100/150/200),
+    # converted with a log-linear fit through two published BSEC readings
+    # (sIAQ 25 -> 0.50 ppm, sIAQ 148 -> 4.59 ppm). The last one is extrapolated.
+    # Keep in sync with ingestor/src/metrics.rs.
+    if tvoc_ppb < 800.0:
         sub_tvoc = 1
-    elif tvoc_ppb < 220.0:
+    elif tvoc_ppb < 1900.0:
         sub_tvoc = 2
-    elif tvoc_ppb < 660.0:
+    elif tvoc_ppb < 4800.0:
         sub_tvoc = 3
-    elif tvoc_ppb < 2200.0:
+    elif tvoc_ppb < 12000.0:
         sub_tvoc = 4
     else:
         sub_tvoc = 5

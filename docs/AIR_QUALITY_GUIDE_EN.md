@@ -92,15 +92,21 @@ $$\text{Global Index} = \max\left(\text{Level}_{CO_2},\ \text{Level}_{PM_{2.5}},
 
 ```
 ┌───────────────┬─────────────────┬─────────────────┬──────────────────┬─────────────────┐
-│ GLOBAL LEVEL  │ QUALIFICATION   │ CO₂ (ppm)       │ PM2.5 (µg/m³)    │ TVOC (ppb)      │
+│ GLOBAL LEVEL  │ QUALIFICATION   │ CO₂ (ppm)       │ PM2.5 (µg/m³)    │ VOC eq. (ppb)   │
 ├───────────────┼─────────────────┼─────────────────┼──────────────────┼─────────────────┤
-│ 🌿 Level 1    │ Excellent       │ < 600           │ < 5.0            │ < 65            │
-│ 🌱 Level 2    │ Good            │ 600 – 800       │ 5.0 – 12.0       │ 65 – 220        │
-│ 🟡 Level 3    │ Moderate        │ 800 – 1000      │ 12.0 – 25.0      │ 220 – 660       │
-│ ⚠️ Level 4    │ Poor            │ 1000 – 1500     │ 25.0 – 50.0      │ 660 – 2200      │
-│ 🚨 Level 5    │ Hazardous       │ > 1500          │ > 50.0           │ > 2200          │
+│ 🌿 Level 1    │ Excellent       │ < 600           │ < 5.0            │ < 800           │
+│ 🌱 Level 2    │ Good            │ 600 – 800       │ 5.0 – 12.0       │ 800 – 1900      │
+│ 🟡 Level 3    │ Moderate        │ 800 – 1000      │ 12.0 – 25.0      │ 1900 – 4800     │
+│ ⚠️ Level 4    │ Poor            │ 1000 – 1500     │ 25.0 – 50.0      │ 4800 – 12000    │
+│ 🚨 Level 5    │ Hazardous       │ > 1500          │ > 50.0           │ > 12000         │
 └───────────────┴─────────────────┴─────────────────┴──────────────────┴─────────────────┘
 ```
+
+> **VOC scale.** The VOC column is the BSEC "breath-VOC equivalent" (Bosch BME680), which reads about 500 ppb in clean
+> air. Boundaries follow Bosch's IAQ classes (static IAQ 50 / 100 / 150 / 200), converted with a log-linear fit through
+> two published BSEC readings; the last boundary is extrapolated. They do not apply to other TVOC sensor families
+> (SGP30/SGP40, ENS160...).
+
 
 ---
 
