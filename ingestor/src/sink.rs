@@ -28,7 +28,8 @@ pub struct MetricSample {
 pub enum WriteError {
     /// InfluxDB unreachable or failing (network, 5xx, 401...): the same batch can be retried.
     Retryable(String),
-    /// InfluxDB refused the data itself (HTTP 400): retrying cannot succeed.
+    /// InfluxDB refused the data itself (HTTP 400 malformed, 422 outside the retention
+    /// period): retrying cannot succeed.
     Rejected(String),
 }
 
@@ -78,7 +79,7 @@ impl InfluxDbSink {
             return Ok(());
         }
         let detail = format!("HTTP {}: {}", status, response.text().await.unwrap_or_default());
-        if status == StatusCode::BAD_REQUEST {
+        if status == StatusCode::BAD_REQUEST || status == StatusCode::UNPROCESSABLE_ENTITY {
             Err(WriteError::Rejected(detail))
         } else {
             Err(WriteError::Retryable(detail))

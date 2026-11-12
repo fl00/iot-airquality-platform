@@ -20,7 +20,7 @@ from starlette.responses import Response, StreamingResponse, FileResponse
 from starlette.requests import Request
 from starlette.staticfiles import StaticFiles
 from fasthtml.common import (
-    FastHTML, serve, Title, Meta, Link, Script, Style, Div, H1, H2, H3, P, Span,
+    FastHTML, Title, Meta, Link, Script, Style, Div, H1, H2, H3, P, Span,
     Button, A, Header, Main, Body, Head
 )
 
@@ -356,6 +356,3 @@ def health_check():
         "sensors_active": sensor_store.count(),
         "timestamp": int(time.time())
     }
-
-if __name__ == "__main__":
-    serve(host="0.0.0.0", port=8000, reload=False)

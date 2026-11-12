@@ -107,42 +107,27 @@ cmd_stop_infra() {
 # 🚀 APPLICATION STACK (Rust Ingestor, FastHTML UI, Mock Publisher)
 # ------------------------------------------------------------------------------
 
+# Stops the process recorded in logs/<name>.pid: SIGTERM first (the ingestor then
+# writes its pending batch), SIGKILL only if it is still alive after 5 s.
+stop_service() {
+    local pid_file="${LOG_DIR}/$1.pid" pid
+    [ -f "${pid_file}" ] || return 0
+    pid=$(cat "${pid_file}" 2>/dev/null || true)
+    rm -f "${pid_file}"
+    [ -n "${pid}" ] && kill "${pid}" 2>/dev/null || return 0
+    for _ in $(seq 50); do
+        kill -0 "${pid}" 2>/dev/null || return 0
+        sleep 0.1
+    done
+    kill -9 "${pid}" 2>/dev/null || true
+}
+
 cmd_stop() {
     echo -e "${YELLOW}==> Stopping IoT Platform Application Stack...${NC}"
-    
-    # 1. Kill Mock Publisher
-    if [ -f "${LOG_DIR}/mock.pid" ]; then
-        PID=$(cat "${LOG_DIR}/mock.pid" 2>/dev/null || true)
-        if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
-            kill -9 "$PID" 2>/dev/null || true
-        fi
-        rm -f "${LOG_DIR}/mock.pid"
-    fi
-    pkill -9 -f "mock_publisher.py" 2>/dev/null || true
-
-    # 2. Kill Dashboard UI (Port 8000)
-    if [ -f "${LOG_DIR}/dashboard.pid" ]; then
-        PID=$(cat "${LOG_DIR}/dashboard.pid" 2>/dev/null || true)
-        if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
-            kill -9 "$PID" 2>/dev/null || true
-        fi
-        rm -f "${LOG_DIR}/dashboard.pid"
-    fi
-    fuser -k 8000/tcp 2>/dev/null || true
-
-    # 3. Kill Rust Ingestor (Port 9100)
-    if [ -f "${LOG_DIR}/ingestor.pid" ]; then
-        PID=$(cat "${LOG_DIR}/ingestor.pid" 2>/dev/null || true)
-        if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
-            kill -9 "$PID" 2>/dev/null || true
-        fi
-        rm -f "${LOG_DIR}/ingestor.pid"
-    fi
-    fuser -k 9100/tcp 2>/dev/null || true
-    pkill -9 -f "iot-airquality-ingestor" 2>/dev/null || true
-
-    sleep 0.5
-    echo -e "${GREEN}✔ All application processes stopped and ports released.${NC}"
+    stop_service mock
+    stop_service dashboard
+    stop_service ingestor
+    echo -e "${GREEN}✔ All application processes stopped.${NC}"
 }
 
 cmd_start() {
@@ -167,10 +152,8 @@ cmd_start() {
         (cd "${BASE_DIR}/ingestor" && cargo build --release)
     fi
 
-    # Clean previous instances
-    fuser -k 9100/tcp 2>/dev/null || true
-    fuser -k 8000/tcp 2>/dev/null || true
-    pkill -9 -f "mock_publisher.py" 2>/dev/null || true
+    # Stop instances started by a previous `make start`
+    cmd_stop >/dev/null
 
     # 1. Start Rust Ingestor
     echo -e "${CYAN}==> Starting Rust Ingestion Hub (:9100)...${NC}"

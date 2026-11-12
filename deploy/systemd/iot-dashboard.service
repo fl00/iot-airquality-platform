@@ -12,9 +12,8 @@ ExecStart=/opt/iot-airquality/dashboard/.venv/bin/uvicorn main:app --host 127.0.
 Restart=always
 RestartSec=3s
 
-# Resource Constraints (< 40MB RAM Hard Cap)
-MemoryHigh=35M
-MemoryMax=40M
+# Resource limit (measured: about 40 MB resident at idle)
+MemoryMax=128M
 CPUQuota=50%
 
 # Linux Security Hardening & Sandboxing

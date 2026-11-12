@@ -39,6 +39,11 @@ if ! command -v influxd >/dev/null 2>&1; then
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq influxdb2 influxdb2-cli >/dev/null
 fi
 
+# InfluxDB is only used by local services: do not listen on the network.
+mkdir -p /etc/influxdb
+grep -qs '^http-bind-address' /etc/influxdb/config.toml \
+    || echo 'http-bind-address = "127.0.0.1:8086"' >> /etc/influxdb/config.toml
+
 echo "=== [2/6] Service user and secrets ==="
 id iot-service >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin iot-service
 mkdir -p "${ENV_DIR}"
@@ -73,7 +78,8 @@ CRED
     chown mosquitto:mosquitto /etc/mosquitto/passwd
     chmod 0600 /etc/mosquitto/passwd
 
-    systemctl enable --now influxdb
+    systemctl enable influxdb
+    systemctl restart influxdb
     sleep 3
     influx setup --force \
         --username iotadmin --password "${INFLUX_ADMIN_PASSWORD}" \

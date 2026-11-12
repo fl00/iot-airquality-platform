@@ -14,12 +14,12 @@ The script can be re-run to update the application: existing secrets and the Inf
 | Service | Listens on | Configuration |
 | :--- | :--- | :--- |
 | Mosquitto | `0.0.0.0:1883` | [`mosquitto/mosquitto.conf`](mosquitto/mosquitto.conf): authentication required |
-| InfluxDB 2 | `127.0.0.1:8086` | Package defaults; bucket `airquality`, 90-day retention |
+| InfluxDB 2 | `127.0.0.1:8086` | Package defaults, bound to localhost; bucket `airquality`, 90-day retention |
 | Ingestor | `127.0.0.1:9100` | [`systemd/iot-ingestor.service`](systemd/iot-ingestor.service) |
 | Dashboard | `127.0.0.1:8000` | [`systemd/iot-dashboard.service`](systemd/iot-dashboard.service) |
 | Caddy | `0.0.0.0:80` | [`Caddyfile`](Caddyfile): reverse proxy to the dashboard |
 
-Application files go to `/opt/iot-airquality/`. Ingestor and dashboard run as the unprivileged user `iot-service` with systemd sandboxing and a 40 MB memory limit each.
+Application files go to `/opt/iot-airquality/`. Ingestor and dashboard run as the unprivileged user `iot-service` with systemd sandboxing and a memory limit (ingestor 40 MB, dashboard 128 MB).
 
 ## Secrets
 

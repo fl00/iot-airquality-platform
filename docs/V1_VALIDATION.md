@@ -62,7 +62,7 @@ sudo sh -c '. /etc/iot-airquality/env; curl -sG http://127.0.0.1:8086/query \
 | InfluxDB errors | `iot_influx_errors_total` | Stable outside known outages |
 | Buffered samples | `iot_influx_buffered_samples` | 0 |
 | Service restarts | `NRestarts` | 0, or explained |
-| Memory | `MemoryCurrent` | Stable week over week, below the 40 MB unit limit |
+| Memory | `MemoryCurrent` | Stable week over week, well below the unit limit (ingestor 40 MB, dashboard 128 MB) |
 | Sensor plausibility | Dashboard, 7-day view | Outdoor-air CO2 near 420 ppm after airing; temperature within 1 °C of a reference thermometer; no flat lines |
 
 On the node, also note from the serial log if accessible: reboots, `[FS]` replay lines, `sIAQ` against `bVOC` (to confirm the VOC thresholds).

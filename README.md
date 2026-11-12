@@ -98,6 +98,7 @@ The same port serves `GET /metrics` (Prometheus text format) and `GET /health`.
 | A sensor is disconnected | Its fields are 0, `status` = degraded; CO2 and pressure are not stored; the dashboard shows "Degraded" | That sensor's values only |
 | Node stops publishing | Dashboard shows "Offline" after 30 s | — |
 | Invalid packet (bad id, topic mismatch, non-finite value, undecodable) | Dropped and counted in `iot_packets_dropped_total` | That packet |
+| InfluxDB rejects a batch (malformed, or older than the retention period) | Batch dropped and logged; not retried | That batch |
 | InfluxDB unreachable or failing | Up to 5,000 samples are kept in memory (about 7 h for one node) and retried every 30 s | None up to the buffer size; then the oldest samples |
 | Ingestor stopped (`systemctl stop`, Ctrl-C) | Pending batch is written before exit | None for accepted packets |
 | Ingestor or broker down | The node cannot tell that nobody listens | Yes, for the duration |
@@ -181,7 +182,7 @@ Not covered by automation: the firmware on real hardware, and a real InfluxDB in
 | Injection through the device id | Ids are restricted to `[A-Za-z0-9_-]` by the ingestor before storage, and again by the dashboard before any query |
 | Exposure of internal services | Ingestor, InfluxDB and dashboard listen on `127.0.0.1` only |
 | Resource exhaustion | Bounded queues everywhere; at most 64 concurrent live-stream browsers |
-| Host compromise through a service | systemd units run as an unprivileged user with `ProtectSystem=strict`, `NoNewPrivileges`, `MemoryMax=40M` |
+| Host compromise through a service | systemd units run as an unprivileged user with `ProtectSystem=strict`, `NoNewPrivileges` and a memory limit |
 
 V1 assumes a trusted LAN: MQTT and the dashboard are not encrypted, and the dashboard has no login. See the limits below before exposing anything to the internet.
 
@@ -190,6 +191,7 @@ V1 assumes a trusted LAN: MQTT and the dashboard are not encrypted, and the dash
 - No TLS on MQTT or HTTP, no dashboard authentication.
 - Samples buffered by the ingestor are held in memory: a crash or power cut while InfluxDB is down loses them.
 - The ingestor uses a clean MQTT session: packets sent while it is down are lost.
+- The node publishes with MQTT QoS 0: after a Wi-Fi drop, packets sent before the node detects the loss (up to about 45 s) are neither delivered nor queued.
 - The dashboard forgets its sensor list on restart; cards reappear with the next packet (within 5 s).
 - VOC thresholds are derived from two published BSEC readings and must be confirmed on real sensors.
 - Firmware has been compiled but not yet run on hardware.
